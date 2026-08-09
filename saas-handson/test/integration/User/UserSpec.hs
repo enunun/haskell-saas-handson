@@ -27,16 +27,34 @@ import Crypto.JWT
   , signClaims
   )
 import Data.Aeson (Value (String))
+import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as LBS
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import Data.Time (UTCTime, addUTCTime, getCurrentTime)
+import Database.PostgreSQL.Simple (close, connectPostgreSQL, execute_)
 import Network.HTTP.Types.Header (Header, hAuthorization)
 import Server (mkApp)
 import Test.Hspec
 import Test.Hspec.Wai
 import Test.Hspec.Wai.JSON (json)
-import User.Server (newStore)
+import User.Repository.Postgres (newPostgresUserRepository)
+
+-- | devcontainerのdocker composeで一緒に起動するdbサービスへの接続文字列。
+testConnStr :: ByteString
+testConnStr = "host=db port=5432 dbname=saas_handson user=postgres password=postgres"
+
+-- | 各テストの前にusersテーブルを空にする。hspec-waiのwithは"IO
+-- Application"アクションをテストケースごとに再評価するため、この
+-- リセットをApplication構築の一部にしておけば、テストケースごとに
+-- クリーンな状態から始められる（":memory:"のSQLiteやテストごとに作り
+-- 直すIORefが自動的に持っていた性質を、実DBに対して明示的に再現して
+-- いる）。
+resetDb :: IO ()
+resetDb = do
+  conn <- connectPostgreSQL testConnStr
+  _ <- execute_ conn "TRUNCATE TABLE users RESTART IDENTITY"
+  close conn
 
 -- | テスト専用のRSA鍵ペアで署名した有効なトークンを組み立てる。実サーバー
 -- では外部の認証サーバー（mock-oauth2-server）が発行するが、結合テストは
@@ -66,7 +84,8 @@ spec = do
   jwk <- runIO (genJWK (RSAGenParam (2048 `div` 8)))
   token <- runIO (signTestToken jwk "acme")
   otherTenantToken <- runIO (signTestToken jwk "globex")
-  let app = mkApp (mkJWKStore (JWKSet [jwk])) <$> newStore
+  repo <- runIO (newPostgresUserRepository testConnStr)
+  let app = resetDb >> pure (mkApp (mkJWKStore (JWKSet [jwk])) repo)
 
   with app $ describe "POST /users, GET /users（認証あり）" $ do
     it "POST /usersは201でid/name/emailを含むボディを返す" $

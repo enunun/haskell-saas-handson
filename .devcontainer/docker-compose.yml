@@ -1,17 +1,17 @@
 networks:
-  # app・mock-authを明示的に同一ネットワークに乗せる。同一compose
+  # app・mock-auth・dbを明示的に同一ネットワークに乗せる。同一compose
   # ファイル内のサービスはnetworksを省略してもCompose標準のdefault
-  # ネットワークで自動的に疎通できるが、Iteration 4で追加予定のDB
-  # サービス等も含め、将来サービスが増えた際の見通しをよくするため
-  # 明示している。
+  # ネットワークで自動的に疎通できるが、将来サービスが増えた際の見通しを
+  # よくするため明示している。
   handson-net:
 
 services:
   # 開発用コンテナ本体（.devcontainer/devcontainer.jsonから
   # dockerComposeFile経由で参照される）。VS Code Dev Containersでこの
-  # リポジトリを開くと、mock-authと同じdocker composeネットワークに
-  # このコンテナが立ち上がるため、mock-authへは"mock-auth"という
-  # サービス名でアクセスできる（例: http://mock-auth:8080/default/jwks）。
+  # リポジトリを開くと、mock-auth・dbと同じdocker composeネットワークに
+  # このコンテナが立ち上がるため、それぞれ"mock-auth"・"db"という
+  # サービス名でアクセスできる（例: http://mock-auth:8080/default/jwks、
+  # host=db port=5432 ...）。
   app:
     build:
       context: ..
@@ -24,6 +24,7 @@ services:
       - handson-net
     depends_on:
       - mock-auth
+      - db
 
   # Iteration 2で導入する外部認証サービス。実際のOIDCプロバイダ（Keycloak等）
   # の代わりに、ローカル開発・演習用にJWTを即座に発行できるモックサーバーを
@@ -46,5 +47,27 @@ services:
       - "8081:8080"
     environment:
       LOG_LEVEL: debug
+    networks:
+      - handson-net
+
+  # Iteration 4で導入する永続化層。User.Repository.Postgresが
+  # 接続する。ローカル開発用の資格情報のため平文で埋め込んである
+  # （本番運用では秘密情報の管理方法を別途検討すること）。
+  #
+  # appコンテナからは"db"というホスト名・コンテナ内ポート5432で
+  # アクセスできる（例: host=db port=5432 dbname=saas_handson
+  # user=postgres password=postgres）。単体テストはこのdbサービスに
+  # 依存しない（in-memory実装のみを使う）。実DBに依存するテストは
+  # test/integration側に置き、dbサービスの起動を前提とする。
+  #
+  # ホスト側（devcontainerの外）から直接繋ぎたい場合はlocalhost:5433。
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: saas_handson
+    ports:
+      - "5433:5432"
     networks:
       - handson-net

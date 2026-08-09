@@ -7,7 +7,7 @@ import Server (mkServer)
 import Servant.Server (runHandler)
 import Test.Hspec
 import Types (HealthResponse (..))
-import User.Server (newStore)
+import User.Repository.InMemory (newInMemoryUserRepository)
 
 -- | ハンドラの戻り値を直接検証する単体テスト。
 --
@@ -20,7 +20,7 @@ import User.Server (newStore)
 spec :: Spec
 spec = describe "healthHandler（単体）" $
   it "statusフィールドにokを返す" $ do
-    store <- newStore
-    let healthHandler :<|> _rest = mkServer store
+    repo <- newInMemoryUserRepository
+    let healthHandler :<|> _rest = mkServer repo
     result <- runHandler healthHandler
     result `shouldBe` Right (HealthResponse "ok")

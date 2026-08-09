@@ -16,6 +16,9 @@ library
                     , User.Api
                     , User.Server
                     , User.Types
+                    , User.Repository
+                    , User.Repository.InMemory
+                    , User.Repository.Postgres
     build-depends:    base >=4.14 && <5
                     , servant
                     , servant-server
@@ -29,6 +32,8 @@ library
                     , mtl
                     , http-conduit
                     , containers
+                    , postgresql-simple
+                    , resource-pool
     default-language: Haskell2010
 
 executable saas-handson-solution
@@ -38,8 +43,12 @@ executable saas-handson-solution
     build-depends:    base >=4.14 && <5
                     , saas-handson-solution
                     , warp
+                    , bytestring
     default-language: Haskell2010
 
+-- 単体テストはUser.Repository.InMemoryのみを使い、実DB（PostgreSQL）へ
+-- は一切接続しない。dockerを起動していない環境でも常にGREEN/RED判定が
+-- 高速かつ確定的に行えることを保証するための意図的な制約。
 test-suite unit
     type:               exitcode-stdio-1.0
     hs-source-dirs:     test/unit
@@ -47,6 +56,7 @@ test-suite unit
     other-modules:      Auth.AuthSpec
                     , Health.HealthSpec
                     , User.UserSpec
+                    , User.RepositorySpec
     build-depends:      base >=4.14 && <5
                       , saas-handson-solution
                       , hspec
@@ -61,12 +71,16 @@ test-suite unit
     build-tool-depends: hspec-discover:hspec-discover
     default-language:   Haskell2010
 
+-- 結合テストはUser.Repository.Postgres（実DB）を使う。実行には
+-- devcontainerのdocker composeで一緒に起動するdbサービスが必要
+-- （docs/iteration-4.mdを参照）。
 test-suite integration
     type:               exitcode-stdio-1.0
     hs-source-dirs:     test/integration
     main-is:            Spec.hs
     other-modules:      Health.HealthSpec
                     , User.UserSpec
+                    , User.RepositorySpec
     build-depends:      base >=4.14 && <5
                       , saas-handson-solution
                       , hspec
@@ -82,5 +96,7 @@ test-suite integration
                       , text
                       , time
                       , http-types
+                      , postgresql-simple
+                      , resource-pool
     build-tool-depends: hspec-discover:hspec-discover
     default-language:   Haskell2010

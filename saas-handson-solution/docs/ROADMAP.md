@@ -48,11 +48,17 @@ Refactorのサイクルを1回以上含み、完了時点で常に完全に動�
 
 ## Iteration 4：永続化層の導入
 
-- **実装する機能**：in-memoryストアからDB（sqlite-simpleまたは
-  postgresql-simple）への置き換え、Repository抽象化
+- **実装する機能**：in-memoryストアからPostgreSQL（`postgresql-simple`
+  ＋`resource-pool`）への置き換え。`UserRepository`（Handleパターンに
+  よるレコード・オブ・関数、OOPで言うDIのHaskellでの実現方法）で
+  Repository抽象化し、in-memory実装・PostgreSQL実装の両方を用意する。
+  自動発番はPostgreSQLの`SERIAL`＋`RETURNING id`に委ね、アプリケーション
+  側の採番ロジック・ロック制御を不要にする
 - **目的**：ハンドラの実装をデータ格納方式から独立させ、テスト容易性を
-  保ったまま永続化を導入する
-- **状態**：未着手
+  保ったまま永続化を導入する。単体テストはin-memory実装のみを使い実DBに
+  一切依存しない、結合テストはPostgreSQL（docker-composeの`db`サービス）
+  に依存してよい、という層分けを徹底する
+- **状態**：完了
 
 ## Iteration 5：権限管理・エラー設計
 

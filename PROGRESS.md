@@ -238,14 +238,158 @@ ROADMAPのIteration 3（マルチテナント対応）を、Iteration 2と同じ
   記述した。Haskell側のテナント分離ロジック自体はdockerに依存しない
   テスト（19件）で動作確認済み。
 
+## Iteration 4を実装した（2026-08-09）
+
+ユーザー指示「続きをやって」を受け、Auto Mode下でROADMAPのIteration 4
+（永続化層の導入）を、Iteration 2・3と同じ方針（docs＋実コード両方、
+演習側TODOスタブ＋RED、解答例側フル実装＋GREEN）で実装した。
+
+### 設計判断
+
+- ROADMAPは「sqlite-simpleまたはpostgresql-simple」を選択肢としていた
+  が、**sqlite-simple**を選んだ。理由はIteration 2・3を通じて維持して
+  きた「`cabal test`は外部プロセスに依存しない」方針を崩したくなかった
+  ため。SQLiteは`":memory:"`接続でテストも本物のSQLを使いつつ完全に
+  hermeticにできる（postgresql-simpleだとDBコンテナが必要になり、
+  テストがdocker-compose起動状態に依存してしまう）。
+- Repository抽象化は型クラスではなくレコード・オブ・関数
+  （Handleパターン）で表現した
+  （`data UserRepository = UserRepository { createUser :: ..., listUsers
+  :: ... }`）。理由は`saas-handson-solution/docs/iteration-4.md`の
+  「設計判断」節に詳述（実行時に実装を選ぶだけでよく型レベルの多態性が
+  不要、内部状態をクロージャに閉じ込められる、Iteration 2の`JWKStore`
+  と同じモチーフの再利用）。
+- `User.Repository.InMemory`（Iteration 1・3のロジックをそのまま移設）
+  と`User.Repository.Sqlite`（新規）の2実装を用意。SQLite側の採番は
+  「テナントごとのMAX(id)+1」方式とし、`withImmediateTransaction`で
+  読み取りより先に書き込みロックを取ることで競合状態を防いだ
+  （`atomicModifyIORef'`のSQL版に相当する設計として説明）。
+  `Connection`は`MVar`でラップしwithMVarで直列化した（sqlite-simpleの
+  Connectionはマルチスレッドから同時アクセスされることを想定していない
+  ため）。
+- 両実装が同じ振る舞いをすることを保証するため、
+  `test/unit/User/RepositorySpec.hs`に契約テスト
+  （`repositoryContractSpec :: IO UserRepository -> Spec`を
+  `newInMemoryUserRepository`・`newSqliteUserRepository ":memory:"`の
+  両方に対して実行）を新設。結合テスト
+  （`test/integration/User/UserSpec.hs`）もSQLite（`:memory:`）を使う
+  ように変更し、HTTP層を含むend-to-endで本物のSQLを検証するように
+  した。
+- `User.Server`は`Store`・`newStore`のエクスポートをやめ、
+  `UserRepository`を受け取って`createUser`/`listUsers`に委譲するだけの
+  薄い層になった。root`Server.hs`・`Main.hs`も`Store`→`UserRepository`
+  に置き換え。`app/Main.hs`は`newSqliteUserRepository
+  "saas-handson(-solution).sqlite3"`でファイルDBを使う（`.gitignore`に
+  `*.sqlite3`等を追加）。
+
+### saas-handson-solution（解答例）側
+
+- 上記をすべて実装し、`cabal test saas-handson-solution`で単体23件
+  （Auth 5・Health 1・RepositorySpec 12〈in-memory 6＋SQLite 6〉・
+  UserSpec 5）・結合8件、計31件GREENを確認済み。
+- `docs/iteration-4.md`を演習側の4-1〜4-5に1対1対応する解説として新規
+  作成。
+
+### saas-handson（演習用）側
+
+- `src/User/Repository.hs`（`UserRepository`型、完成済み）・
+  `src/User/Repository/InMemory.hs`（構造は完成済み、
+  `createUserImpl`・`listUsersImpl`はTODO。Iteration 1/3の未実装ロジック
+  がここに移設された形）・`src/User/Repository/Sqlite.hs`（スキーマ
+  作成・`FromRow`インスタンス・`MVar`配線は完成済み、
+  `createUserImpl`・`listUsersImpl`のSQL本体はTODO）を新規追加。
+  `src/User/Server.hs`はStore/TODOを撤去し、UserRepositoryへの委譲のみ
+  の完成済みコードに置き換えた（ロジックがRepository側に移ったため）。
+  root`src/Server.hs`・`app/Main.hs`もUserRepositoryを使う形に配線済み。
+- テストファイルは解答例側と同一内容をそのまま反映（`RepositorySpec`
+  新設、`UserSpec`単体・結合、`HealthSpec`単体・結合の`mkApp`/`mkServer`
+  呼び出し元をすべて`UserRepository`ベースに更新）。
+- `cabal build saas-handson`（lib・exe・test）はGREENを確認済み。
+  `cabal test saas-handson`は意図通りREDで、単体23件中23件・結合8件中
+  7件が`error "TODO: ..."`起因で失敗（「Authorizationヘッダなし→401」
+  の1件のみ引き続きGREEN）。
+- `docs/iteration-4.md`を演習4-1（Repository抽象化を読み解く）〜4-5
+  （発展：永続化の実機確認・採番方式のトレードオフ・Handleパターンの
+  一般化）の5節構成で新規作成。
+
+### 制約・未検証事項
+
+- 演習4-5の「サーバーを再起動してもデータが残ることを確認する」は、
+  実際に`cabal run`でサーバーを起動・再起動する手順が必要なため、この
+  環境では対話的に確認していない（`cabal build`が通ること、
+  `newSqliteUserRepository`が単体・結合テストでファイルDB同等の
+  `":memory:"`接続に対して正しく動くことは確認済み）。
+
+## Iteration 4をSQLiteからPostgreSQL＋DI方針に作り直した（2026-08-09）
+
+ユーザー指示を受け、Iteration 4を全面的に作り直した。指示内容：
+(1) DBはPostgreSQLにする、(2) 単体テストはin-memoryを死守し実DBに
+依存させない、(3) 結合テストは外部コンテナ（実DB）に依存してよい、
+(4) OOPで言うDIのテクニックでテスタブルな状態を担保する、という設計
+思想を明示的に教える、(5) 自動発番の責務をDB側に寄せる。
+
+### 設計変更点
+
+- `docker-compose.yml`（`.devcontainer/docker-compose.yml`）に`db`
+  サービス（`postgres:16`、`app`・`mock-auth`と同じ`handson-net`）を
+  追加。ホスト公開ポートは5433（コンテナ内は5432）。
+- `.devcontainer/Dockerfile`に`libpq-dev`を追加（`postgresql-libpq`の
+  ビルドに必要。追加前は`configure: error: Library requirements
+  (PostgreSQL) not met`でビルド自体が失敗することをこのセッションで
+  実際に確認し、追加後に解消したことも確認済み）。
+- `User.Repository.Sqlite`を削除し`User.Repository.Postgres`に置き換え。
+  採番はSQLiteの`SELECT MAX(id)+1`＋`withImmediateTransaction`方式から、
+  PostgreSQLの`SERIAL`＋`INSERT ... RETURNING id`に変更。これに伴い
+  アプリケーション側の明示的なトランザクション・ロック制御コードが
+  丸ごと不要になった（`docs/iteration-4.md`で「自動発番の責務をDB側に
+  寄せる」ことの具体例として詳説）。
+- コネクション管理は`MVar Connection`（単一コネクションの直列化）から
+  `resource-pool`の`Pool Connection`に変更（PostgreSQLは複数コネクション
+  からの同時アクセスを安全に処理できるため）。
+- idの採番方式を「テナントごとに1から連番」から「テナントを跨いだ
+  グローバルな連番」に変更（PostgreSQLの`SERIAL`が単一テーブルに単一の
+  連番しか払い出せないことに合わせた）。in-memory実装も同じ挙動に変更し、
+  影響を受けた既存テスト（「テナントごとにid採番が独立している」）を
+  「採番はテナントを跨いでグローバルに行われる」に書き換えた。
+- **テスト層を明確に分離**：`test/unit`はUser.Repository.InMemoryのみ
+  使用し実DBに一切依存しない。実DB（PostgreSQL）を使うテスト
+  （契約テスト・HTTP結合テスト）はすべて`test/integration`に配置し、
+  dbサービスへの依存を許容する。`test/integration/User/RepositorySpec.hs`
+  を新設し、`test/unit`側と同じ`repositoryContractSpec`をPostgreSQLに
+  対して実行する（TRUNCATE TABLE ... RESTART IDENTITYでテストごとに
+  状態をリセット）。
+- `docs/iteration-4.md`（両側）に、Repository抽象化＝OOPのDIに相当する
+  という説明を明示的に追加（インターフェース＝`UserRepository`型、
+  実装＝`newInMemoryUserRepository`/`newPostgresUserRepository`、
+  注入＝`server repo`という普通の関数適用、コンポジションルート＝
+  `main`関数・テストの`spec`関数）。
+
+### 検証状況
+
+- `saas-handson-solution`：ライブラリ・実行ファイルのビルド、単体テスト
+  （17件、in-memoryのみ）は完全GREENを確認済み。結合テストは
+  `libpq: failed (could not translate host name "db" to address ...)`
+  というエラーで失敗するが、これはこの環境にdbコンテナ（Postgres）が
+  実際に起動していないためであり、コンパイルは通ること・エラー内容が
+  「DB未接続」であることまで確認済み（コードのロジック自体は単体テスト
+  側の契約テストで間接的に検証されている、というのがこの教材の設計）。
+- `saas-handson`：ライブラリ・実行ファイルのビルドはGREEN、単体テスト
+  17件は意図通り全滅（TODO由来）、結合テストはコンパイルのみ確認。
+
+### 制約・未検証事項
+
+- 実際にdocker composeで`db`サービスを起動し、結合テスト
+  （`test/integration/User/RepositorySpec.hs`・
+  `test/integration/User/UserSpec.hs`）が実際にGREENになることは、
+  この環境にdockerがないため確認できていない。次回Docker環境で
+  `docker compose up -d`（またはdevcontainerを開く）→
+  `cabal test saas-handson-solution:test:integration`を実行して確認
+  する必要がある。
+
 ## 次にやること（案）
 
-- Iteration 3のmock-oauth2-server`claims`パラメータ・curl手順
-  （演習3-2・3-6）をDockerが使える環境で実際に検証する。
-- Iteration 4（永続化層の導入）以降のdocsはまだ作成していない。
-  `saas-handson-solution/docs/iteration-3.md`の演習3-6解説で、
-  `Map TenantId (...)`という設計をDBのRepository層にどう引き継ぐかの
-  方向性（共有スキーマ＋tenant_id列 or スキーマ分離）を触れている。
-- 演習1-6・0-5・2-5・2-6・3-6のような発展課題について、必要であれば
-  模範解答をsaas-handson-solution側に別途用意するかどうかを検討する
-  （現状は解説文のみで、コードとしては用意していない）。
+- 上記のPostgreSQL結合テストをDocker環境で実際に検証する。
+- Iteration 5（権限管理・エラー設計）以降のdocsはまだ作成していない。
+- 演習1-6・0-5・2-5・2-6・3-6・4-5のような発展課題について、必要で
+  あれば模範解答をsaas-handson-solution側に別途用意するかどうかを検討
+  する（現状は解説文のみで、コードとしては用意していない）。
