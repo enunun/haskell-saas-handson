@@ -1,16 +1,17 @@
 {
   "name": "saas-handson-devcontainer",
-  "build": {
-    "context": "..",
-    "dockerfile": "Dockerfile"
-  },
+  "dockerComposeFile": "./docker-compose.yml",
+  "service": "app",
+  "workspaceFolder": "/workspaces",
+  "shutdownAction": "stopCompose",
   "customizations": {
     "vscode": {
       "extensions": [
         "haskell.haskell",
         "justusadam.language-haskell",
         "EditorConfig.EditorConfig",
-        "anthropic.claude-code"
+        "anthropic.claude-code",
+        "growthjack.claude-code-usage"
       ],
       "settings": {
         "haskell.manageHLS": "GHCup",
@@ -21,10 +22,12 @@
       }
     }
   },
-  "initializeCommand": "mkdir -p \"${localWorkspaceFolder}/.devcontainer/claude-home/.claude\" && touch \"${localWorkspaceFolder}/.devcontainer/claude-home/.claude.json\"",
+  "initializeCommand": "mkdir -p \"${localWorkspaceFolder}/.devcontainer/claude-home/.claude\"",
   "mounts": [
-    "source=${localWorkspaceFolder}/.devcontainer/claude-home/.claude,target=/root/.claude,type=bind",
-    "source=${localWorkspaceFolder}/.devcontainer/claude-home/.claude.json,target=/root/.claude.json,type=bind"
+    "source=${localWorkspaceFolder}/.devcontainer/claude-home/.claude,target=/root/.claude,type=bind"
   ],
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/root/.claude"
+  },
   "postCreateCommand": "cabal update"
 }

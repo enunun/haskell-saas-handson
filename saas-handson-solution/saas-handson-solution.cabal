@@ -8,6 +8,8 @@ library
     hs-source-dirs:   src
     exposed-modules:  Api
                     , Server
+                    , Auth.Server
+                    , Auth.Types
                     , Health.Api
                     , Health.Server
                     , Health.Types
@@ -15,10 +17,17 @@ library
                     , User.Server
                     , User.Types
     build-depends:    base >=4.14 && <5
+                    , servant
                     , servant-server
                     , warp
                     , aeson
                     , text
+                    , bytestring
+                    , wai
+                    , jose
+                    , lens
+                    , mtl
+                    , http-conduit
     default-language: Haskell2010
 
 executable saas-handson-solution
@@ -34,12 +43,19 @@ test-suite unit
     type:               exitcode-stdio-1.0
     hs-source-dirs:     test/unit
     main-is:            Spec.hs
-    other-modules:      Health.HealthSpec
+    other-modules:      Auth.AuthSpec
+                    , Health.HealthSpec
                     , User.UserSpec
     build-depends:      base >=4.14 && <5
                       , saas-handson-solution
                       , hspec
                       , servant-server
+                      , jose
+                      , lens
+                      , mtl
+                      , text
+                      , time
+                      , bytestring
     build-tool-depends: hspec-discover:hspec-discover
     default-language:   Haskell2010
 
@@ -58,5 +74,11 @@ test-suite integration
                       , wai
                       , aeson
                       , bytestring
+                      , jose
+                      , lens
+                      , mtl
+                      , text
+                      , time
+                      , http-types
     build-tool-depends: hspec-discover:hspec-discover
     default-language:   Haskell2010

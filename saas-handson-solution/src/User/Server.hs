@@ -4,6 +4,7 @@ module User.Server
   , server
   ) where
 
+import Auth.Types (AuthenticatedUser)
 import Control.Monad.IO.Class (liftIO)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
 import Servant
@@ -21,14 +22,19 @@ type Store = IORef (Int, [User])
 newStore :: IO Store
 newStore = newIORef (1, [])
 
+-- | Iteration 2でAuthProtect "jwt"が挿入されたことで、両ハンドラの型に
+-- AuthenticatedUserが増えている。この時点では認証済みであることの確認
+-- （＝Servantのroute解決がここまで到達していること自体）だけが目的で、
+-- 「誰が」の情報はまだドメインロジックに使っていない（Iteration 3以降で
+-- テナント境界・所有者チェックに使う）。
 server :: Store -> Server API
 server store = createUserHandler :<|> listUsersHandler
   where
-    createUserHandler :: CreateUserRequest -> Handler User
-    createUserHandler (CreateUserRequest reqName reqEmail) =
+    createUserHandler :: AuthenticatedUser -> CreateUserRequest -> Handler User
+    createUserHandler _authUser (CreateUserRequest reqName reqEmail) =
       liftIO $ atomicModifyIORef' store $ \(nextId, users) ->
         let newUser = User nextId reqName reqEmail
         in ((nextId + 1, users ++ [newUser]), newUser)
 
-    listUsersHandler :: Handler [User]
-    listUsersHandler = liftIO (snd <$> readIORef store)
+    listUsersHandler :: AuthenticatedUser -> Handler [User]
+    listUsersHandler _authUser = liftIO (snd <$> readIORef store)

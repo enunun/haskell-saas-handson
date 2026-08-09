@@ -1,0 +1,50 @@
+networks:
+  # app・mock-authを明示的に同一ネットワークに乗せる。同一compose
+  # ファイル内のサービスはnetworksを省略してもCompose標準のdefault
+  # ネットワークで自動的に疎通できるが、Iteration 4で追加予定のDB
+  # サービス等も含め、将来サービスが増えた際の見通しをよくするため
+  # 明示している。
+  handson-net:
+
+services:
+  # 開発用コンテナ本体（.devcontainer/devcontainer.jsonから
+  # dockerComposeFile経由で参照される）。VS Code Dev Containersでこの
+  # リポジトリを開くと、mock-authと同じdocker composeネットワークに
+  # このコンテナが立ち上がるため、mock-authへは"mock-auth"という
+  # サービス名でアクセスできる（例: http://mock-auth:8080/default/jwks）。
+  app:
+    build:
+      context: ..
+      dockerfile: .devcontainer/Dockerfile
+    volumes:
+      - ..:/workspaces:cached
+    working_dir: /workspaces
+    command: sleep infinity
+    networks:
+      - handson-net
+    depends_on:
+      - mock-auth
+
+  # Iteration 2で導入する外部認証サービス。実際のOIDCプロバイダ（Keycloak等）
+  # の代わりに、ローカル開発・演習用にJWTを即座に発行できるモックサーバーを
+  # 使う。詳細はdocs/iteration-2.mdを参照。
+  #
+  # appコンテナ（＝このdevcontainerに入った状態）からは、docker compose
+  # の名前解決により"mock-auth"というホスト名・コンテナ内ポート8080で
+  # アクセスできる（docker compose up -dを別途叩く必要はない。
+  # devcontainerを開いた時点でこのサービスも一緒に起動している）。
+  #
+  # トークン発行: curl -X POST http://mock-auth:8080/default/token \
+  #   -d grant_type=client_credentials -d client_id=alice -d client_secret=dummy
+  # （client_idがそのままJWTのsubクレームになる）
+  # JWKS: curl http://mock-auth:8080/default/jwks
+  #
+  # ホスト側（devcontainerの外）から直接叩きたい場合はlocalhost:8081。
+  mock-auth:
+    image: ghcr.io/navikt/mock-oauth2-server:2.1.10
+    ports:
+      - "8081:8080"
+    environment:
+      LOG_LEVEL: debug
+    networks:
+      - handson-net

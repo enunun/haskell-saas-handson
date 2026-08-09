@@ -4,6 +4,7 @@ module Server
   ) where
 
 import Api (API, api)
+import Auth.Server (JWKStore, authContext)
 import Servant
 import Types (HealthResponse (..))
 import qualified User.Server as User
@@ -26,5 +27,9 @@ mkServer store = healthHandler :<|> User.server store
     healthHandler :: Handler HealthResponse
     healthHandler = error "TODO: Iteration 0で実装する"
 
-mkApp :: Store -> Application
-mkApp store = serve api (mkServer store)
+-- | Iteration 2でserveをserveWithContextに変更した。User.APIの
+-- AuthProtect "jwt"を解決するにはauthContext（AuthHandlerを含む
+-- Context）をservantに渡す必要があるため。Healthは未認証のまま
+-- （ヘルスチェックはロードバランサ等から認証なしで叩かれる前提）。
+mkApp :: JWKStore -> Store -> Application
+mkApp jwkStore store = serveWithContext api (authContext jwkStore) (mkServer store)
