@@ -1,0 +1,4 @@
+[tracking]
+enabled = true
+history_days = 90
+database_path = "/root/.local/share/rtk/history.db"
