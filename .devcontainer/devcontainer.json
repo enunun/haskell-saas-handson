@@ -1,0 +1,25 @@
+{
+  "name": "saas-handson-devcontainer",
+  "build": {
+    "context": "..",
+    "dockerfile": "Dockerfile"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "haskell.haskell",
+        "justusadam.language-haskell",
+        "EditorConfig.EditorConfig",
+        "anthropic.claude-code"
+      ],
+      "settings": {
+        "haskell.manageHLS": "GHCup",
+        "editor.formatOnSave": false,
+        "files.watcherExclude": {
+          "**/dist-newstyle/**": true
+        }
+      }
+    }
+  },
+  "postCreateCommand": "cabal update"
+}

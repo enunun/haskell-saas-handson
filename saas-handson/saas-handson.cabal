@@ -1,0 +1,53 @@
+cabal-version:      2.4
+name:               saas-handson
+version:            0.1.0.0
+synopsis:           HaskellとServantで作るtoB SaaSハンズオン教材（演習用）
+build-type:         Simple
+
+library
+    hs-source-dirs:   src
+    exposed-modules:  Api
+                    , Server
+                    , Types
+    build-depends:    base >=4.14 && <5
+                    , servant-server
+                    , warp
+                    , aeson
+                    , text
+    default-language: Haskell2010
+
+executable saas-handson
+    hs-source-dirs:   app
+    main-is:          Main.hs
+    build-depends:    base >=4.14 && <5
+                    , saas-handson
+                    , warp
+    default-language: Haskell2010
+
+test-suite unit
+    type:               exitcode-stdio-1.0
+    hs-source-dirs:     test/unit
+    main-is:            Spec.hs
+    other-modules:      HealthSpec
+    build-depends:      base >=4.14 && <5
+                      , saas-handson
+                      , hspec
+                      , servant-server
+    build-tool-depends: hspec-discover:hspec-discover
+    default-language:   Haskell2010
+
+test-suite integration
+    type:               exitcode-stdio-1.0
+    hs-source-dirs:     test/integration
+    main-is:            Spec.hs
+    other-modules:      HealthSpec
+    build-depends:      base >=4.14 && <5
+                      , saas-handson
+                      , hspec
+                      , hspec-wai
+                      , servant-server
+                      , wai
+                      , aeson
+                      , bytestring
+    build-tool-depends: hspec-discover:hspec-discover
+    default-language:   Haskell2010
