@@ -49,9 +49,10 @@ newPostgresUserRepository connStr = do
   pure UserRepository
     { createUser = createUserImpl pool
     , listUsers = listUsersImpl pool
+    , getUser = getUserImpl pool
     }
 
--- | TODO: createUserImpl・listUsersImplを実装し、
+-- | TODO: createUserImpl・listUsersImpl・getUserImplを実装し、
 -- test/integration/User/RepositorySpec.hsをGREENにすること（devcontainer
 -- の"db"サービス起動が必要）。
 -- ヒント：
@@ -66,8 +67,16 @@ newPostgresUserRepository connStr = do
 -- - listUsersImplは"SELECT id, name, email FROM users WHERE tenant_id = ?
 --   ORDER BY id"をqueryで実行するだけでよい（FromRow Userインスタンスは
 --   すでに用意されている）。
+-- - getUserImplは"SELECT id, name, email FROM users WHERE tenant_id = ?
+--   AND id = ?"をqueryで実行し、Data.Maybe.listToMaybeで0件ならNothing・
+--   1件ならJustに変換する。tenant_idとidの両方をWHERE句に含めることで、
+--   他テナントのidを指定した場合も「存在しない」と同じ0件になり、
+--   テナントの存在自体を漏らさない。
 createUserImpl :: Pool Connection -> TenantId -> Text -> Text -> IO User
 createUserImpl _pool _tenantId _reqName _reqEmail = error "TODO: Iteration 4で実装する"
 
 listUsersImpl :: Pool Connection -> TenantId -> IO [User]
 listUsersImpl _pool _tenantId = error "TODO: Iteration 4で実装する"
+
+getUserImpl :: Pool Connection -> TenantId -> Int -> IO (Maybe User)
+getUserImpl _pool _tenantId _targetId = error "TODO: Iteration 1で実装する"

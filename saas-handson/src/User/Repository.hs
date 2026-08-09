@@ -14,11 +14,18 @@ import User.Types (User)
 -- 1つのアプリケーションの中で複数の実装を切り替える必要がない
 -- （型クラスの多態性が本質的には要らない）ことによる。
 --
--- createUser・listUsersはいずれもTenantIdを最初の引数に取り、実装側が
--- テナント境界を越えたデータへアクセスしないことを型シグネチャで示す
--- （Iteration 3で確立した「テナントIDを渡さずにデータへアクセスする
+-- createUser・listUsers・getUserはいずれもTenantIdを最初の引数に取り、
+-- 実装側がテナント境界を越えたデータへアクセスしないことを型シグネチャで
+-- 示す（Iteration 3で確立した「テナントIDを渡さずにデータへアクセスする
 -- 経路を作れなくする」という設計をそのまま踏襲している）。
+--
+-- getUserはIntersection（tenantId, id）に一致するUserが存在しない場合
+-- （そもそも存在しない・他テナントのものである、のいずれか）を
+-- Maybe Userで表現する。「存在しない」と「見る権限がない」を区別せず
+-- 同じNothingとして扱うことで、他テナントのユーザーの存在自体を
+-- レスポンスから漏らさない。
 data UserRepository = UserRepository
   { createUser :: TenantId -> Text -> Text -> IO User
   , listUsers  :: TenantId -> IO [User]
+  , getUser    :: TenantId -> Int -> IO (Maybe User)
   }

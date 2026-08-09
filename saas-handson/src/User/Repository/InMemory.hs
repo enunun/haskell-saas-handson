@@ -25,12 +25,13 @@ newInMemoryUserRepository = do
   pure UserRepository
     { createUser = createUserImpl store
     , listUsers = listUsersImpl store
+    , getUser = getUserImpl store
     }
 
--- | TODO: createUserImpl・listUsersImplを実装し、
+-- | TODO: createUserImpl・listUsersImpl・getUserImplを実装し、
 -- test/unit/User/RepositorySpec.hsをGREENにすること。Iteration 1
--- （採番・登録）・Iteration 3（テナント分離）で扱ったロジックがここに
--- 集約されている。
+-- （採番・登録・単一取得）・Iteration 3（テナント分離）で扱ったロジックが
+-- ここに集約されている。
 -- ヒント：
 -- - Data.Map.Strict.findWithDefault []で、tenantIdに対応する登録済み
 --   ユーザー一覧を取り出す（未登録のテナントなら空リスト）。
@@ -38,8 +39,15 @@ newInMemoryUserRepository = do
 --   分のMap)を読み・書きし、該当テナントのバケットだけを
 --   Data.Map.Strict.insertで更新する。idの採番はテナントに関係なく
 --   常にグローバルなカウンタを1つ進める。
+-- - getUserImplはfindWithDefault []で取り出したテナントのユーザー一覧に
+--   対してData.List.findでuserIdが一致する要素を探す。見つからなければ
+--   Nothingを返せばよい（UserRepositoryの型シグネチャがIO (Maybe User)
+--   であることに合わせる）。
 createUserImpl :: IORef (Int, Map TenantId [User]) -> TenantId -> Text -> Text -> IO User
 createUserImpl _store _tenantId _reqName _reqEmail = error "TODO: Iteration 1/3/4で実装する"
 
 listUsersImpl :: IORef (Int, Map TenantId [User]) -> TenantId -> IO [User]
 listUsersImpl _store _tenantId = error "TODO: Iteration 1/3/4で実装する"
+
+getUserImpl :: IORef (Int, Map TenantId [User]) -> TenantId -> Int -> IO (Maybe User)
+getUserImpl _store _tenantId _targetId = error "TODO: Iteration 1で実装する"

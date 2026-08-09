@@ -60,3 +60,20 @@ repositoryContractSpec newRepo = do
     globexUser <- createUser repo (TenantId "globex") "Bob" "bob@example.com"
     userId acmeUser `shouldBe` 1
     userId globexUser `shouldBe` 2
+
+  it "getUserは作成済みユーザーをJustに包んで返す" $ do
+    repo <- newRepo
+    created <- createUser repo (TenantId "acme") "Alice" "alice@example.com"
+    found <- getUser repo (TenantId "acme") (userId created)
+    found `shouldBe` Just created
+
+  it "getUserは存在しないidに対してNothingを返す" $ do
+    repo <- newRepo
+    found <- getUser repo (TenantId "acme") 999
+    found `shouldBe` Nothing
+
+  it "getUserは他テナントのユーザーIDに対してNothingを返す（テナント分離）" $ do
+    repo <- newRepo
+    created <- createUser repo (TenantId "acme") "Alice" "alice@example.com"
+    found <- getUser repo (TenantId "globex") (userId created)
+    found `shouldBe` Nothing

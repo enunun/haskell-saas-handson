@@ -13,8 +13,9 @@ Refactorのサイクルを1回以上含み、完了時点で常に完全に動�
 
 ## Iteration 1：ユーザー登録・一覧
 
-- **実装する機能**：`POST /users`（ユーザー登録）、`GET /users`（一覧取得）
-  ※データはin-memoryで保持する
+- **実装する機能**：`POST /users`（ユーザー登録）、`GET /users`（一覧取得）、
+  `GET /users/{id}`（idを指定した単一取得。存在しないid・他テナントの
+  idはいずれも404を返す）※データはin-memoryで保持する
 - **含むリファクタリング**：機能が2つ（Health, User）になるタイミングで、
   技術層別構成（`src/Api.hs`／`Server.hs`／`Types.hs`）から機能別
   ディレクトリ構成（`src/Health/`, `src/User/`というVertical Slice）へ

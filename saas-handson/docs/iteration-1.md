@@ -2,11 +2,12 @@
 
 ## この章で作るもの
 
-`POST /users`（ユーザー登録）と`GET /users`（一覧取得）を実装する。データ
-はDBを使わずin-memory（`IORef`）で保持する。バリデーションや重複チェック
-は行わない（Iteration 5で扱う）。ユーザーは`id`・`name`・`email`のみを
-持つ。あわせて、Healthを技術層別構成から機能別構成（Vertical Slice）へ
-移すリファクタリングも行う。
+`POST /users`（ユーザー登録）・`GET /users`（一覧取得）・`GET /users/{id}`
+（idを指定した単一取得）を実装する。データはDBを使わずin-memory
+（`IORef`）で保持する。バリデーションや重複チェックは行わない
+（Iteration 5で扱う）。ユーザーは`id`・`name`・`email`のみを持つ。あわせて、
+Healthを技術層別構成から機能別構成（Vertical Slice）へ移すリファクタ
+リングも行う。
 
 ## 進め方
 
@@ -116,3 +117,41 @@ curl http://localhost:8080/users
    書き出してみる。
 3. 余力があれば、`User`に`createdAt`のような新しいフィールドを追加し、
    Red→Green→Refactorのサイクルを自力で回してみる。
+
+## 演習1-7：getUserHandlerを実装する（GET /users/{id}）
+
+idを指定して単一のユーザーを取得する`GET /users/{id}`を追加する。演習
+1-2・1-3の時点ではStore（`IORef`）へServer.hsが直接アクセスしていたが、
+現在のコードはIteration 4で導入された`UserRepository`（`src/User/
+Repository.hs`）という抽象化を経由する形にすでになっている（詳細は
+`docs/iteration-4.md`）。`UserRepository`に`getUser`フィールドが追加
+済みなので、以下の2つのTODOを実装する。
+
+1. `src/User/Repository/InMemory.hs`の`getUserImpl`を実装する。
+   - `Data.Map.Strict.findWithDefault []`でテナントの登録済みユーザー
+     一覧を取り出し、`Data.List.find`で`userId`が一致する要素を探す。
+     見つからなければ`Nothing`を返す。
+2. `src/User/Repository/Postgres.hs`の`getUserImpl`を実装する。
+   - `"SELECT id, name, email FROM users WHERE tenant_id = ? AND id = ?"`
+     を`query`で実行し、`Data.Maybe.listToMaybe`で0件なら`Nothing`・
+     1件なら`Just`に変換する。
+
+`src/User/Server.hs`の`getUserHandler`はすでに実装済みである。
+`UserRepository`が`Nothing`を返した場合に`Servant.err404`を
+`throwError`する、という「見つからなければ404」という方針を読んで
+確認しておく（`UserError`のドメインエラー機構はIteration 5で導入
+されるものであり、この演習ではまだ使わない）。
+
+```sh
+cabal test saas-handson
+```
+
+を実行し、単体テスト（`test/unit/User/UserSpec.hs`・`test/unit/User/
+RepositorySpec.hs`）・結合テスト（`test/integration/User/UserSpec.hs`・
+`test/integration/User/RepositorySpec.hs`）のGET /users/{id}に関する
+テストがすべてGREENになることを確認する。特に以下を確認する。
+
+- 作成したユーザーをidで取得できること。
+- 存在しないidを指定すると404が返ること。
+- 他テナントが作成したユーザーのidを指定しても404が返ること（テナント
+  境界を越えて存在を漏らさない）。

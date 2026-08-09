@@ -1,7 +1,7 @@
 # Iteration 1：解説
 
 このドキュメントは`saas-handson/docs/iteration-1.md`の演習問題に対応する
-解答解説である。見出しの番号（1-1〜1-6）は演習側と対応している。
+解答解説である。見出しの番号（1-1〜1-7）は演習側と対応している。
 
 ## 演習1-1の解説：User/CreateUserRequestの型を読み解く
 
@@ -206,3 +206,72 @@ Health・Userのコードには一切手を入れずに済む点が、機能別�
 `cabal build`・`cabal test`を実行した際に「Could not load module」や
 「Couldn't match type '[Char]' with 'Text'」のようなエラーが出た場合は、
 上記のいずれかが不足している可能性が高い。
+
+## 演習1-7の解説：getUserHandlerを実装する（GET /users/{id}）
+
+### Capture：パスパラメータの型レベル表現
+
+```haskell
+type API =
+       AuthProtect "jwt" :> "users" :> ReqBody '[JSON] CreateUserRequest :> PostCreated '[JSON] User
+  :<|> AuthProtect "jwt" :> "users" :> Get '[JSON] [User]
+  :<|> AuthProtect "jwt" :> "users" :> Capture "id" Int :> Get '[JSON] User
+```
+
+`Capture "id" Int`は、パスの該当セグメントを`Int`としてパースしハンドラ
+に渡すことを型で表現する。パースに失敗した場合（例：`/users/abc`という
+数値でないパス）の400応答はservant-serverが自動的に生成する。
+
+### getUserImplの実装（in-memory）
+
+```haskell
+getUserImpl :: IORef (Int, Map TenantId [User]) -> TenantId -> Int -> IO (Maybe User)
+getUserImpl store tenantId targetId = do
+  (_, tenants) <- readIORef store
+  pure (find ((== targetId) . userId) (Map.findWithDefault [] tenantId tenants))
+```
+
+`listUsersImpl`と同じく該当テナントのユーザー一覧をまず取り出したうえで、
+`Data.List.find`で`userId`が一致する要素を探す。`find`は見つからなければ
+`Nothing`を返すため、そのまま`UserRepository`の型シグネチャ
+（`IO (Maybe User)`）に一致する。
+
+### getUserImplの実装（PostgreSQL）
+
+```haskell
+getUserImpl :: Pool Connection -> TenantId -> Int -> IO (Maybe User)
+getUserImpl pool tenantId targetId =
+  withResource pool $ \conn -> do
+    rows <- query conn
+      "SELECT id, name, email FROM users WHERE tenant_id = ? AND id = ?"
+      (unTenantId tenantId, targetId)
+    pure (listToMaybe rows)
+```
+
+`WHERE tenant_id = ? AND id = ?`でテナント境界とid一致の両方を1つのSQL
+文に含めている。他テナントのidを指定した場合も0行になるため、
+「存在しない」場合と「他テナントのものだった」場合を区別なく`Nothing`
+として扱える（他テナントのデータの存在自体をレスポンスから漏らさない
+という設計はIteration 3の方針をそのまま踏襲している）。`listToMaybe`
+（`Data.Maybe`）は0件なら`Nothing`、1件以上なら先頭要素を`Just`で包む
+（idはテーブルのPRIMARY KEYなので実際には0件か1件にしかならない）。
+
+### getUserHandlerの実装
+
+```haskell
+getUserHandler :: AuthenticatedUser -> Int -> Handler User
+getUserHandler authUser targetId = do
+  maybeUser <- liftIO (getUser repo (authTenantId authUser) targetId)
+  case maybeUser of
+    Just foundUser -> pure foundUser
+    Nothing        -> throwError err404
+```
+
+`UserError`（`Forbidden`・`InvalidEmail`）はIteration 5で導入される
+「権限がない・入力が不正」という種類のドメインエラーであり、「リソース
+がそもそも存在しない」という単純な404はこの型に含めていない。
+`Servant.err404`を`Control.Monad.Except.throwError`で直接投げることで、
+Iteration 5の`UserError`／`toServerError`機構に依存せず、このIteration
+の中で完結させている（`listUsersHandler`が`createUserHandler`のような
+権限チェック・ログ出力を持たないのと同じ理由で、`getUserHandler`も
+単純さを保っている）。

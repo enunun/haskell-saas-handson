@@ -6,6 +6,7 @@ module User.Repository.Postgres
 
 import Auth.Types (TenantId (..))
 import Data.ByteString (ByteString)
+import Data.Maybe (listToMaybe)
 import Data.Pool (Pool, defaultPoolConfig, newPool, withResource)
 import Data.Text (Text)
 import Database.PostgreSQL.Simple
@@ -53,6 +54,7 @@ newPostgresUserRepository connStr = do
   pure UserRepository
     { createUser = createUserImpl pool
     , listUsers = listUsersImpl pool
+    , getUser = getUserImpl pool
     }
 
 -- | idの採番はPostgreSQLのSERIAL（内部的には連番を払い出すシーケンス）
@@ -77,3 +79,15 @@ listUsersImpl pool tenantId =
     query conn
       "SELECT id, name, email FROM users WHERE tenant_id = ? ORDER BY id"
       (Only (unTenantId tenantId))
+
+-- | tenant_idとidの両方をWHERE句に含めることで、他テナントのidを
+-- 指定した場合も「存在しない」場合と同じ0行になり、テナントの存在
+-- 自体を漏らさない（listToMaybeは0件ならNothing・1件以上ならJustに
+-- 先頭要素を包む。idはPRIMARY KEYなので実際には0件か1件にしかならない）。
+getUserImpl :: Pool Connection -> TenantId -> Int -> IO (Maybe User)
+getUserImpl pool tenantId targetId =
+  withResource pool $ \conn -> do
+    rows <- query conn
+      "SELECT id, name, email FROM users WHERE tenant_id = ? AND id = ?"
+      (unTenantId tenantId, targetId)
+    pure (listToMaybe rows)

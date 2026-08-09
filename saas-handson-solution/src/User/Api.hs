@@ -18,6 +18,11 @@ import User.Types (CreateUserRequest, User)
 -- にした。"jwt"というタグはAuth.Types.AuthServerData型族インスタンスと
 -- Auth.Server.authContextを結び付けるための識別子であり、複数種類の
 -- 認証を使い分ける場合はタグを増やす。
+--
+-- GET /users/{id}はCapture "id" Intでパスセグメントをidとして受け取り、
+-- 単一のUserを返す。存在しないidを指定した場合は404を返す
+-- （User.Server.getUserHandlerを参照）。
 type API =
        AuthProtect "jwt" :> "users" :> ReqBody '[JSON] CreateUserRequest :> PostCreated '[JSON] User
   :<|> AuthProtect "jwt" :> "users" :> Get '[JSON] [User]
+  :<|> AuthProtect "jwt" :> "users" :> Capture "id" Int :> Get '[JSON] User

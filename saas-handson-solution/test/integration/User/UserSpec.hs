@@ -133,3 +133,21 @@ spec = do
       request "POST" "/users" [("Content-Type", "application/json"), authHeader token]
         [json|{name:"Bob",email:"not-an-email"}|]
         `shouldRespondWith` 400
+
+  with app $ describe "GET /users/{id}" $ do
+    it "作成済みユーザーをidで取得できる" $ do
+      _ <- request "POST" "/users" [("Content-Type", "application/json"), authHeader token]
+        [json|{name:"Alice",email:"alice@example.com"}|]
+      request "GET" "/users/1" [authHeader token] ""
+        `shouldRespondWith` [json|{id:1,name:"Alice",email:"alice@example.com"}|]
+
+    it "存在しないidを指定すると404が返る" $
+      request "GET" "/users/999" [authHeader token] "" `shouldRespondWith` 404
+
+    it "他テナントのトークンで作成済みユーザーのidを指定すると404が返る（テナント分離）" $ do
+      _ <- request "POST" "/users" [("Content-Type", "application/json"), authHeader token]
+        [json|{name:"Alice",email:"alice@example.com"}|]
+      request "GET" "/users/1" [authHeader otherTenantToken] "" `shouldRespondWith` 404
+
+    it "AuthorizationヘッダなしのGET /users/{id}は401を返す" $
+      get "/users/1" `shouldRespondWith` 401

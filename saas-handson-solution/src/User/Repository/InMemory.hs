@@ -4,6 +4,7 @@ module User.Repository.InMemory
 
 import Auth.Types (TenantId)
 import Data.IORef (IORef, atomicModifyIORef', newIORef, readIORef)
+import Data.List (find)
 import Data.Map.Strict (Map)
 import qualified Data.Map.Strict as Map
 import Data.Text (Text)
@@ -25,6 +26,7 @@ newInMemoryUserRepository = do
   pure UserRepository
     { createUser = createUserImpl store
     , listUsers = listUsersImpl store
+    , getUser = getUserImpl store
     }
 
 createUserImpl :: IORef (Int, Map TenantId [User]) -> TenantId -> Text -> Text -> IO User
@@ -38,3 +40,11 @@ createUserImpl store tenantId reqName reqEmail =
 listUsersImpl :: IORef (Int, Map TenantId [User]) -> TenantId -> IO [User]
 listUsersImpl store tenantId =
   Map.findWithDefault [] tenantId . snd <$> readIORef store
+
+-- | 該当テナントの登録済みユーザー一覧からuserIdが一致する要素を探す。
+-- テナント境界を越えたidを指定した場合は該当テナントの一覧に含まれない
+-- ため、自然にNothingになる（存在しないidの場合と区別しない）。
+getUserImpl :: IORef (Int, Map TenantId [User]) -> TenantId -> Int -> IO (Maybe User)
+getUserImpl store tenantId targetId = do
+  (_, tenants) <- readIORef store
+  pure (find ((== targetId) . userId) (Map.findWithDefault [] tenantId tenants))
