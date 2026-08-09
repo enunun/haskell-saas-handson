@@ -136,15 +136,116 @@ Iteration 2（認証）について、docsだけでなく実コードも新規�
 `curl http://mock-auth:8080/default/jwks`が疎通することを確認する
 必要がある。
 
+## devcontainerの実際のマウント先が判明した（2026-08-09）
+
+ユーザーが実際にDev Containerをrebuildし、上記の統合を検証・調整の上
+コミットした（`9bfe121 iteration 2を実装`・`268d03a claudeの設定が
+コミットされないよう変更`）。この調整により判明した実際の構成：
+
+- `docker-compose.yml`は`.devcontainer/docker-compose.yml`に配置されて
+  いる（リポジトリルートではない）。
+- devcontainer.jsonの`workspaceFolder`は`/workspaces/haskell-saas-handson`
+  ではなく`/workspaces`（リポジトリ内容が`/workspaces`直下に展開される。
+  `saas-handson/`・`saas-handson-solution/`等はその直下）。
+  `docker-compose.yml`の`app`サービスの`volumes`は`..:/workspaces:cached`、
+  `build.context`は`..`（`.devcontainer/`から見た相対パス）になっている。
+- `.gitignore`に`.devcontainer/claude-home/`・`.claude`が追加され、
+  Claude Code自身の設定がリポジトリにコミットされないようになった。
+- 以降のセッションでは`/workspaces/saas-handson`・
+  `/workspaces/saas-handson-solution`のようにリポジトリ直下パスを使う
+  （`/workspaces/haskell-saas-handson/...`ではない）。
+- `mock-auth:8080`というサービス名解決は変わらず有効（`app`・
+  `mock-auth`が同じdocker composeネットワーク上にあることは維持）。
+
+## Iteration 3を実装した（2026-08-09）
+
+ユーザー指示「続きのセクションも作成していって」を受け、Auto Mode下で
+ROADMAPのIteration 3（マルチテナント対応）を、Iteration 2と同じ方針
+（docs＋実コード両方、演習側TODOスタブ＋RED、解答例側フル実装＋GREEN）
+で実装した。
+
+### 設計判断
+
+- テナントIDはJWTの`tenant_id`という非標準クレームとして受け取る
+  設計にした。認証サーバー（mock-oauth2-server）がテナント所属を検証
+  した上でクレーム発行する、という責務分担を前提にしている
+  （`saas-handson-solution/docs/iteration-3.md`の「設計判断」節、および
+  演習3-6の解説で、これがモックだから許容される簡略化であり本番の
+  IdPでは任意のtenant_idをクライアントが指定できてはならない点を
+  明記した）。
+- `Crypto.JWT`の`ClaimsSet`は登録済みクレーム専用のため、`tenant_id`を
+  扱うために`ClaimsSet`をラップした`TenantClaims`サブタイプ
+  （`HasClaimsSet`・`FromJSON`インスタンスを実装）を`Auth.Server`に
+  追加し、`verifyClaims`ではなく汎用の`verifyJWT`を使うよう変更した。
+- `AuthenticatedUser`に`authTenantId :: TenantId`を追加。
+  `User.Server`の`Store`を`IORef (Int, [User])`から
+  `IORef (Map TenantId (Int, [User]))`に変更し、
+  `createUserHandler`・`listUsersHandler`が`authTenantId authUser`を
+  キーにしてMapをスコープするようにした（`containers`パッケージを両
+  `.cabal`に追加）。
+- `User.Api`・root`Api.hs`／`Server.hs`／`Main.hs`・`docker-compose.yml`
+  は変更不要だった（Iteration 2で確立した`AuthenticatedUser`経由の
+  仕組みに情報を1つ足すだけで済んだ）。
+- mock-oauth2-serverの`claims`リクエストパラメータ（JSON文字列を
+  トークンのクレームにマージする機能）を使い、docker-compose側の設定
+  変更なしにテナントID違いのトークンを発行できることを演習3-2・3-6の
+  curl手順として記載した。
+
+### saas-handson-solution（解答例）側
+
+- 上記をすべて実装し、`cabal test saas-handson-solution`で単体11件・
+  結合8件、計19件GREENを確認済み（追加5テスト：AuthSpecに
+  「tenant_idクレームがないトークンは拒否される」、UserSpec単体に
+  テナント分離2件、UserSpec結合にテナント分離1件、既存テストの
+  AuthenticatedUser構築にtenantId追加）。
+- `test/unit/Auth/AuthSpec.hs`・`test/integration/User/UserSpec.hs`の
+  トークン署名は`Crypto.JWT.addClaim`（非推奨API、コンパイル時に
+  `-Wdeprecations`警告が出るが動作に問題はない）でtenant_idクレームを
+  付与している。本番コード（`Auth.Server`）側は非推奨APIを使わず
+  `TenantClaims`サブタイプ経由の推奨パターンを採用している、という
+  非対称性を意図的に許容した（テストコードの簡潔さを優先）。
+- `docs/iteration-3.md`を演習側の3-1〜3-6に1対1対応する解説として新規
+  作成。
+
+### saas-handson（演習用）側
+
+- `src/Auth/Types.hs`（`TenantId`・`AuthenticatedUser`拡張、完成済み）・
+  `src/Auth/Server.hs`（`TenantClaims`型・インスタンスは完成済み、
+  `verify`本体はTODOのまま。コメントを「TODO: Iteration 2/3で実装する」
+  に更新し、tenant_id抽出のヒントを追記）・`src/User/Server.hs`
+  （`Store`の型・`newStore`は完成済み、`createUserHandler`・
+  `listUsersHandler`本体はTODOのまま。コメントを
+  「TODO: Iteration 1/3で実装する」に更新）を更新。
+- テストファイル（`test/unit/Auth/AuthSpec.hs`・
+  `test/unit/User/UserSpec.hs`・`test/integration/User/UserSpec.hs`）は
+  解答例側と同一内容をそのまま反映（テストはお手本を書き写すものでは
+  なく最初からGREENを目指す対象なので、演習側でも完全な形で用意する
+  というIteration 1/2からの方針を踏襲）。
+- `cabal build saas-handson`（lib・exe・test）はGREENを確認済み。
+  `cabal test saas-handson`は意図通りREDで、単体11件中11件・結合8件中
+  7件が`error "TODO: ..."`起因で失敗（「Authorizationヘッダなし→401」
+  の1件のみ引き続きGREEN）。
+- `docs/iteration-3.md`を演習3-1（型・仕組みを読み解く）〜3-6（発展：
+  実サーバー疎通確認・IdPの本番運用における注意点・Iteration 4への
+  接続）の6節構成で新規作成。
+
+### 制約・未検証事項
+
+- mock-oauth2-serverの`claims`リクエストパラメータ（`-d
+  'claims={"tenant_id":"acme"}'`でJWTに任意のクレームをマージできる
+  機能）は、Iteration 2のときと同様この開発環境にdockerコマンドが
+  存在せず実機検証できていない。ドキュメント記載の既知の仕様に基づいて
+  記述した。Haskell側のテナント分離ロジック自体はdockerに依存しない
+  テスト（19件）で動作確認済み。
+
 ## 次にやること（案）
 
-- 上記のdevcontainer統合をDockerが使える環境で実際に検証する
-  （Rebuild Container→`cabal build`→`curl http://mock-auth:8080/...`）。
-- `docs/ROADMAP.md`のIteration 2の「状態」を演習側は「着手中」、解答例
-  側は「完了」に更新済み。Iteration 3（マルチテナント対応）以降のdocsは
-  まだ作成していない。今回確立した認証の型（`AuthenticatedUser`）を
-  テナント識別にどう拡張するかがIteration 3の設計の起点になる
-  （`saas-handson-solution/docs/iteration-2.md`の演習2-6解説を参照）。
-- 演習1-6・0-5・2-5・2-6のような発展課題について、必要であれば模範解答
-  をsaas-handson-solution側に別途用意するかどうかを検討する（現状は
-  解説文のみで、コードとしては用意していない）。
+- Iteration 3のmock-oauth2-server`claims`パラメータ・curl手順
+  （演習3-2・3-6）をDockerが使える環境で実際に検証する。
+- Iteration 4（永続化層の導入）以降のdocsはまだ作成していない。
+  `saas-handson-solution/docs/iteration-3.md`の演習3-6解説で、
+  `Map TenantId (...)`という設計をDBのRepository層にどう引き継ぐかの
+  方向性（共有スキーマ＋tenant_id列 or スキーマ分離）を触れている。
+- 演習1-6・0-5・2-5・2-6・3-6のような発展課題について、必要であれば
+  模範解答をsaas-handson-solution側に別途用意するかどうかを検討する
+  （現状は解説文のみで、コードとしては用意していない）。

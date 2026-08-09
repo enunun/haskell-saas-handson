@@ -40,10 +40,14 @@ Refactorのサイクルを1回以上含み、完了時点で常に完全に動�
 
 ## Iteration 3：マルチテナント対応
 
-- **実装する機能**：テナントIDに基づくデータ分離
+- **実装する機能**：JWTの`tenant_id`クレームに基づくデータ分離。
+  `AuthenticatedUser`にテナントIDを追加し、`POST /users`・`GET /users`
+  のin-memoryストアをテナントIDでスコープする
 - **目的**：toB SaaSに不可欠な「契約企業ごとにデータを隔離する」という
-  要件を、Servantのコンテキストや型を使って表現する
-- **状態**：未着手
+  要件を、Servantのコンテキストや型（`AuthenticatedUser`・
+  `Map TenantId (...)`）を使って表現する
+- **状態**：着手中（テストRED。JWT検証への`tenant_id`抽出追加
+  （`src/Auth/Server.hs`の`verify`）・Iteration 0/1のTODOが未実装）
 
 ## Iteration 4：永続化層の導入
 

@@ -3,7 +3,7 @@
 module Auth.AuthSpec (spec) where
 
 import Auth.Server (mkJWKStore, verifyToken)
-import Auth.Types (AuthenticatedUser (..))
+import Auth.Types (AuthenticatedUser (..), TenantId (..))
 import Control.Lens ((&), (?~))
 import Crypto.JOSE (JOSE, JWK, KeyMaterialGenParam (RSAGenParam), bestJWSAlg, genJWK, newJWSHeaderProtected, runJOSE)
 import Crypto.JWT
@@ -11,12 +11,14 @@ import Crypto.JWT
   , JWTError
   , NumericDate (..)
   , SignedJWT
+  , addClaim
   , claimExp
   , claimSub
   , emptyClaimsSet
   , encodeCompact
   , signClaims
   )
+import Data.Aeson (Value (String))
 import qualified Data.ByteString.Lazy as LBS
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
@@ -24,34 +26,37 @@ import Data.Time (UTCTime, addUTCTime, getCurrentTime)
 import Test.Hspec
 
 -- | テスト専用のRSA鍵ペアで署名した有効なトークンを組み立てる。
-signToken :: JWK -> UTCTime -> IO Text
-signToken jwk expiresAt = do
-  Right token <- runJOSE (buildToken jwk expiresAt)
+-- tenant_idはClaimsSetの標準クレームではないため、addClaim（非標準
+-- クレームの追加）で付与する。
+signToken :: JWK -> UTCTime -> Text -> IO Text
+signToken jwk expiresAt tenantId = do
+  Right token <- runJOSE (buildToken jwk expiresAt tenantId)
   pure (TE.decodeUtf8 (LBS.toStrict (encodeCompact token)))
 
 -- | eの型（JWTError）をrunJOSEに伝えるため、型シグネチャを明示した
 -- トップレベル関数として定義する（do記法の中に直接書くと曖昧になる）。
-buildToken :: JWK -> UTCTime -> JOSE JWTError IO SignedJWT
-buildToken jwk expiresAt = do
+buildToken :: JWK -> UTCTime -> Text -> JOSE JWTError IO SignedJWT
+buildToken jwk expiresAt tenantId = do
   alg <- bestJWSAlg jwk
-  let claims = emptyClaimsSet
-        & claimSub ?~ "alice"
-        & claimExp ?~ NumericDate expiresAt
+  let claims = addClaim "tenant_id" (String tenantId)
+        $ emptyClaimsSet
+            & claimSub ?~ "alice"
+            & claimExp ?~ NumericDate expiresAt
   signClaims jwk (newJWSHeaderProtected alg) claims
 
 spec :: Spec
 spec = describe "Auth.Server.verifyToken" $ do
-  it "有効なトークンはsubクレームをAuthenticatedUserとして返す" $ do
+  it "有効なトークンはsub・tenant_idクレームをAuthenticatedUserとして返す" $ do
     jwk <- genJWK (RSAGenParam (2048 `div` 8))
     now <- getCurrentTime
-    token <- signToken jwk (addUTCTime 3600 now)
+    token <- signToken jwk (addUTCTime 3600 now) "acme"
     result <- verifyToken (mkJWKStore (JWKSet [jwk])) token
-    result `shouldBe` Right (AuthenticatedUser "alice")
+    result `shouldBe` Right (AuthenticatedUser "alice" (TenantId "acme"))
 
   it "期限切れのトークンは拒否される" $ do
     jwk <- genJWK (RSAGenParam (2048 `div` 8))
     now <- getCurrentTime
-    token <- signToken jwk (addUTCTime (-3600) now)
+    token <- signToken jwk (addUTCTime (-3600) now) "acme"
     result <- verifyToken (mkJWKStore (JWKSet [jwk])) token
     result `shouldSatisfy` isLeft
 
@@ -59,13 +64,25 @@ spec = describe "Auth.Server.verifyToken" $ do
     signingKey <- genJWK (RSAGenParam (2048 `div` 8))
     otherKey <- genJWK (RSAGenParam (2048 `div` 8))
     now <- getCurrentTime
-    token <- signToken signingKey (addUTCTime 3600 now)
+    token <- signToken signingKey (addUTCTime 3600 now) "acme"
     result <- verifyToken (mkJWKStore (JWKSet [otherKey])) token
     result `shouldSatisfy` isLeft
 
   it "壊れたトークン文字列は拒否される" $ do
     jwk <- genJWK (RSAGenParam (2048 `div` 8))
     result <- verifyToken (mkJWKStore (JWKSet [jwk])) "not-a-jwt"
+    result `shouldSatisfy` isLeft
+
+  it "tenant_idクレームがないトークンは拒否される" $ do
+    jwk <- genJWK (RSAGenParam (2048 `div` 8))
+    now <- getCurrentTime
+    Right token <- runJOSE $ do
+      alg <- bestJWSAlg jwk
+      let claims = emptyClaimsSet
+            & claimSub ?~ "alice"
+            & claimExp ?~ NumericDate (addUTCTime 3600 now)
+      signClaims jwk (newJWSHeaderProtected alg) claims :: JOSE JWTError IO SignedJWT
+    result <- verifyToken (mkJWKStore (JWKSet [jwk])) (TE.decodeUtf8 (LBS.toStrict (encodeCompact token)))
     result `shouldSatisfy` isLeft
 
 isLeft :: Either a b -> Bool

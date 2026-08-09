@@ -9,10 +9,11 @@ module Auth.Server
   , verifyToken
   ) where
 
-import Auth.Types (AuthenticatedUser (..))
+import Auth.Types (AuthenticatedUser (..), TenantId (..))
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.IO.Class (liftIO)
-import Crypto.JWT (JWKSet, JWTError)
+import Crypto.JWT (ClaimsSet, HasClaimsSet (..), JWKSet, JWTError)
+import Data.Aeson (FromJSON (..), Value (Object), withObject, (.:))
 import qualified Data.ByteString as BS
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
@@ -77,9 +78,35 @@ verifyToken (JWKStore jwks) token = runExceptT (verify jwks token)
 
 -- | TODO: JWTの署名検証・クレーム検証を実装し、
 -- test/unit/Auth/AuthSpec.hsをGREENにすること。
--- ヒント：Crypto.JWT.decodeCompactでコンパクト表現をデコードし、
--- Crypto.JWT.verifyClaimsでJWKSetに対して署名・有効期限を検証する。
--- subクレームの取り出しにはCrypto.JWT.claimSubとControl.Lensの
--- (^?)・_Just・Crypto.JWT.stringを組み合わせる。
+-- ヒント：
+-- - Crypto.JWT.decodeCompactでコンパクト表現をデコードする
+--   （型は:: ExceptT JWTError IO SignedJWTと明示すること）。
+-- - Crypto.JWT.verifyJWT（verifyClaimsではない点に注意。TenantClaimsは
+--   標準のClaimsSetにtenant_idを追加した独自のペイロード型なので、
+--   ClaimsSet専用のverifyClaimsではなく汎用のverifyJWTを使う）で
+--   JWKSetに対して署名・有効期限を検証する。
+-- - subクレームの取り出しにはCrypto.JWT.claimSubとControl.Lensの
+--   (^?)・_Just・Crypto.JWT.stringを組み合わせる
+--   （TenantClaimsのtenantClaimsSetフィールドに対して行う）。
+-- - tenant_idクレームの取り出しはTenantClaimsのtenantClaimsTenantId
+--   フィールドをそのまま使えばよい（FromJSONインスタンスが既に
+--   パース済みにしてくれている）。
 verify :: JWKSet -> Text -> ExceptT JWTError IO AuthenticatedUser
-verify _jwks _token = error "TODO: Iteration 2で実装する"
+verify _jwks _token = error "TODO: Iteration 2/3で実装する"
+
+-- | 標準のClaimsSet（RFC 7519で定義されたsub・exp等）に、非標準クレーム
+-- であるtenant_idを追加したサブタイプ。jose（Crypto.JWT）は追加クレーム
+-- を扱う場合、ClaimsSetをラップした独自の型にHasClaimsSet・FromJSON
+-- インスタンスを与えることを推奨している（unregisteredClaimsは非推奨）。
+-- verifyJWTはこの型を検証対象のペイロードとして受け取る。
+data TenantClaims = TenantClaims
+  { tenantClaimsSet      :: ClaimsSet
+  , tenantClaimsTenantId :: Text
+  }
+
+instance HasClaimsSet TenantClaims where
+  claimsSet f s = fmap (\a' -> s { tenantClaimsSet = a' }) (f (tenantClaimsSet s))
+
+instance FromJSON TenantClaims where
+  parseJSON = withObject "TenantClaims" $ \o ->
+    TenantClaims <$> parseJSON (Object o) <*> o .: "tenant_id"

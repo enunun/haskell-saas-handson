@@ -19,12 +19,14 @@ import Crypto.JWT
   , JWTError
   , NumericDate (..)
   , SignedJWT
+  , addClaim
   , claimExp
   , claimSub
   , emptyClaimsSet
   , encodeCompact
   , signClaims
   )
+import Data.Aeson (Value (String))
 import qualified Data.ByteString.Lazy as LBS
 import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
@@ -39,20 +41,21 @@ import User.Server (newStore)
 -- | テスト専用のRSA鍵ペアで署名した有効なトークンを組み立てる。実サーバー
 -- では外部の認証サーバー（mock-oauth2-server）が発行するが、結合テストは
 -- 外部プロセスに依存させたくないため、テスト内で鍵生成・署名まで行う。
-signTestToken :: JWK -> IO Text
-signTestToken jwk = do
+signTestToken :: JWK -> Text -> IO Text
+signTestToken jwk tenantId = do
   now <- getCurrentTime
-  Right token <- runJOSE (buildToken jwk now)
+  Right token <- runJOSE (buildToken jwk now tenantId)
   pure (TE.decodeUtf8 (LBS.toStrict (encodeCompact token)))
 
 -- | eの型（JWTError）をrunJOSEに伝えるため、型シグネチャを明示した
 -- トップレベル関数として定義する（do記法の中に直接書くと曖昧になる）。
-buildToken :: JWK -> UTCTime -> JOSE JWTError IO SignedJWT
-buildToken jwk now = do
+buildToken :: JWK -> UTCTime -> Text -> JOSE JWTError IO SignedJWT
+buildToken jwk now tenantId = do
   alg <- bestJWSAlg jwk
-  let claims = emptyClaimsSet
-        & claimSub ?~ "alice"
-        & claimExp ?~ NumericDate (addUTCTime 3600 now)
+  let claims = addClaim "tenant_id" (String tenantId)
+        $ emptyClaimsSet
+            & claimSub ?~ "alice"
+            & claimExp ?~ NumericDate (addUTCTime 3600 now)
   signClaims jwk (newJWSHeaderProtected alg) claims
 
 authHeader :: Text -> Header
@@ -61,7 +64,8 @@ authHeader token = (hAuthorization, "Bearer " <> TE.encodeUtf8 token)
 spec :: Spec
 spec = do
   jwk <- runIO (genJWK (RSAGenParam (2048 `div` 8)))
-  token <- runIO (signTestToken jwk)
+  token <- runIO (signTestToken jwk "acme")
+  otherTenantToken <- runIO (signTestToken jwk "globex")
   let app = mkApp (mkJWKStore (JWKSet [jwk])) <$> newStore
 
   with app $ describe "POST /users, GET /users（認証あり）" $ do
@@ -86,3 +90,9 @@ spec = do
 
     it "不正なトークンでのGET /usersは401を返す" $
       request "GET" "/users" [authHeader "not-a-jwt"] "" `shouldRespondWith` 401
+
+  with app $ describe "POST /users, GET /users（テナント分離）" $
+    it "別テナントのトークンでは他テナントが作成したユーザーが見えない" $ do
+      _ <- request "POST" "/users" [("Content-Type", "application/json"), authHeader token]
+        [json|{name:"Alice",email:"alice@example.com"}|]
+      request "GET" "/users" [authHeader otherTenantToken] "" `shouldRespondWith` [json|[]|]

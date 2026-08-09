@@ -28,6 +28,7 @@ library
                     , lens
                     , mtl
                     , http-conduit
+                    , containers
     default-language: Haskell2010
 
 executable saas-handson-solution
@@ -56,6 +57,7 @@ test-suite unit
                       , text
                       , time
                       , bytestring
+                      , aeson
     build-tool-depends: hspec-discover:hspec-discover
     default-language:   Haskell2010
 

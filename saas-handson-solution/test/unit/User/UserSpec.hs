@@ -2,7 +2,7 @@
 
 module User.UserSpec (spec) where
 
-import Auth.Types (AuthenticatedUser (..))
+import Auth.Types (AuthenticatedUser (..), TenantId (..))
 import Servant (( :<|> ) (..))
 import Servant.Server (runHandler)
 import Test.Hspec
@@ -16,7 +16,10 @@ import User.Types (CreateUserRequest (..), User (..))
 -- AuthenticatedUserをそのまま渡せばよい（JWT検証自体の単体テストは
 -- Auth.AuthSpecが担う）。
 testUser :: AuthenticatedUser
-testUser = AuthenticatedUser "test-user"
+testUser = AuthenticatedUser "test-user" (TenantId "acme")
+
+otherTenantUser :: AuthenticatedUser
+otherTenantUser = AuthenticatedUser "other-user" (TenantId "globex")
 
 spec :: Spec
 spec = describe "User handlers（単体）" $ do
@@ -40,3 +43,20 @@ spec = describe "User handlers（単体）" $ do
     _ <- runHandler (create testUser (CreateUserRequest "Bob" "bob@example.com"))
     Right users <- runHandler (list testUser)
     map userName users `shouldBe` ["Alice", "Bob"]
+
+  it "別テナントのユーザーは互いに見えない（テナント分離）" $ do
+    store <- newStore
+    let create :<|> list = server store
+    _ <- runHandler (create testUser (CreateUserRequest "Alice" "alice@example.com"))
+    Right acmeUsers <- runHandler (list testUser)
+    Right globexUsers <- runHandler (list otherTenantUser)
+    map userName acmeUsers `shouldBe` ["Alice"]
+    globexUsers `shouldBe` []
+
+  it "テナントごとにid採番が独立している" $ do
+    store <- newStore
+    let create :<|> _list = server store
+    Right acmeUser <- runHandler (create testUser (CreateUserRequest "Alice" "alice@example.com"))
+    Right globexUser <- runHandler (create otherTenantUser (CreateUserRequest "Bob" "bob@example.com"))
+    userId acmeUser `shouldBe` 1
+    userId globexUser `shouldBe` 1

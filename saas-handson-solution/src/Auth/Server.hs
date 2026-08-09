@@ -9,12 +9,13 @@ module Auth.Server
   , verifyToken
   ) where
 
-import Auth.Types (AuthenticatedUser (..))
+import Auth.Types (AuthenticatedUser (..), TenantId (..))
 import Control.Lens ((^?), _Just)
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.IO.Class (liftIO)
 import Crypto.JWT
   ( ClaimsSet
+  , HasClaimsSet (..)
   , JWKSet
   , JWTError (JWTClaimsSetDecodeError)
   , SignedJWT
@@ -22,8 +23,9 @@ import Crypto.JWT
   , decodeCompact
   , defaultJWTValidationSettings
   , string
-  , verifyClaims
+  , verifyJWT
   )
+import Data.Aeson (FromJSON (..), Value (Object), withObject, (.:))
 import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as LBS
 import Data.Text (Text)
@@ -84,8 +86,9 @@ bearerToken req = do
   either (const Nothing) Just (TE.decodeUtf8' rest)
 
 -- | JWTの署名をJWKSetで検証し、有効期限（exp）等のクレームを検証したうえ
--- で、subクレームをAuthenticatedUserとして取り出す。
--- 署名不正・期限切れ・subクレーム欠落のいずれもJWTErrorとして失敗する。
+-- で、sub・tenant_idクレームをAuthenticatedUserとして取り出す。
+-- 署名不正・期限切れ・sub/tenant_idクレーム欠落のいずれもJWTErrorとして
+-- 失敗する。
 --
 -- HTTPのリクエスト表現から独立しているため、単体テストではHTTP層を
 -- 経由せずこの関数を直接呼び出して検証できる。
@@ -95,10 +98,27 @@ verifyToken (JWKStore jwks) token = runExceptT (verify jwks token)
 verify :: JWKSet -> Text -> ExceptT JWTError IO AuthenticatedUser
 verify jwks token = do
   jwt <- decodeCompact (LBS.fromStrict (TE.encodeUtf8 token)) :: ExceptT JWTError IO SignedJWT
-  claims <- verifyClaims (defaultJWTValidationSettings (const True)) jwks jwt
-  case subjectOf claims of
-    Just sub -> pure (AuthenticatedUser sub)
+  claims <- verifyJWT (defaultJWTValidationSettings (const True)) jwks jwt :: ExceptT JWTError IO TenantClaims
+  case subjectOf (tenantClaimsSet claims) of
+    Just sub -> pure (AuthenticatedUser sub (TenantId (tenantClaimsTenantId claims)))
     Nothing -> throwError (JWTClaimsSetDecodeError "subクレームがありません")
 
 subjectOf :: ClaimsSet -> Maybe Text
 subjectOf claims = claims ^? claimSub . _Just . string
+
+-- | 標準のClaimsSet（RFC 7519で定義されたsub・exp等）に、非標準クレーム
+-- であるtenant_idを追加したサブタイプ。jose（Crypto.JWT）は追加クレーム
+-- を扱う場合、ClaimsSetをラップした独自の型にHasClaimsSet・FromJSON
+-- インスタンスを与えることを推奨している（unregisteredClaimsは非推奨）。
+-- verifyJWTはこの型を検証対象のペイロードとして受け取る。
+data TenantClaims = TenantClaims
+  { tenantClaimsSet      :: ClaimsSet
+  , tenantClaimsTenantId :: Text
+  }
+
+instance HasClaimsSet TenantClaims where
+  claimsSet f s = fmap (\a' -> s { tenantClaimsSet = a' }) (f (tenantClaimsSet s))
+
+instance FromJSON TenantClaims where
+  parseJSON = withObject "TenantClaims" $ \o ->
+    TenantClaims <$> parseJSON (Object o) <*> o .: "tenant_id"
