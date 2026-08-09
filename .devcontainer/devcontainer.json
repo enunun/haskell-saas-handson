@@ -21,5 +21,10 @@
       }
     }
   },
+  "initializeCommand": "mkdir -p \"${localWorkspaceFolder}/.devcontainer/claude-home/.claude\" && touch \"${localWorkspaceFolder}/.devcontainer/claude-home/.claude.json\"",
+  "mounts": [
+    "source=${localWorkspaceFolder}/.devcontainer/claude-home/.claude,target=/root/.claude,type=bind",
+    "source=${localWorkspaceFolder}/.devcontainer/claude-home/.claude.json,target=/root/.claude.json,type=bind"
+  ],
   "postCreateCommand": "cabal update"
 }
