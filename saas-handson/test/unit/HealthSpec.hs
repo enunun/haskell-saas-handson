@@ -2,6 +2,7 @@
 
 module HealthSpec (spec) where
 
+import Logging.Capturing (newCapturingLogger)
 import Servant (( :<|> ) (..))
 import Server (mkServer)
 import Servant.Server (runHandler)
@@ -21,6 +22,7 @@ spec :: Spec
 spec = describe "healthHandler（単体）" $
   it "statusフィールドにokを返す" $ do
     repo <- newInMemoryUserRepository
-    let healthHandler :<|> _rest = mkServer repo
+    (logger, _getLogs) <- newCapturingLogger
+    let healthHandler :<|> _rest = mkServer logger repo
     result <- runHandler healthHandler
     result `shouldBe` Right (HealthResponse "ok")

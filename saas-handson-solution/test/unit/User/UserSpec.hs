@@ -3,6 +3,8 @@
 module User.UserSpec (spec) where
 
 import Auth.Types (AuthenticatedUser (..), Role (..), TenantId (..))
+import Logging (LogEntry (..), LogLevel (..))
+import Logging.Capturing (newCapturingLogger)
 import Servant (( :<|> ) (..), ServerError (errHTTPCode))
 import Servant.Server (runHandler)
 import Test.Hspec
@@ -18,7 +20,9 @@ import User.Types (CreateUserRequest (..), User (..))
 -- Auth.AuthSpecが担う）。UserRepositoryはIteration 4でHandler本体から
 -- 切り離されたため、ここではDBを起動せず高速なin-memory実装を使う
 -- （in-memory実装・PostgreSQL実装が同じ契約を満たすことは
--- User.RepositorySpec〈単体・結合の両方〉が検証する）。
+-- User.RepositorySpec〈単体・結合の両方〉が検証する）。LoggerもIteration
+-- 6でHandler本体から切り離されたため、標準出力を汚さないLogging.Capturing
+-- を使う。
 testUser :: AuthenticatedUser
 testUser = AuthenticatedUser "test-user" (TenantId "acme") Admin
 
@@ -32,20 +36,23 @@ spec :: Spec
 spec = describe "User handlers（単体）" $ do
   it "createUserHandlerはid採番済みのUserを返す" $ do
     repo <- newInMemoryUserRepository
-    let create :<|> _list = server repo
+    (logger, _getLogs) <- newCapturingLogger
+    let create :<|> _list = server logger repo
     Right created <- runHandler (create testUser (CreateUserRequest "Alice" "alice@example.com"))
     created `shouldBe` User 1 "Alice" "alice@example.com"
 
   it "2件作成すると異なるidが採番される" $ do
     repo <- newInMemoryUserRepository
-    let create :<|> _list = server repo
+    (logger, _getLogs) <- newCapturingLogger
+    let create :<|> _list = server logger repo
     Right u1 <- runHandler (create testUser (CreateUserRequest "Alice" "alice@example.com"))
     Right u2 <- runHandler (create testUser (CreateUserRequest "Bob" "bob@example.com"))
     userId u1 `shouldNotBe` userId u2
 
   it "listUsersHandlerは作成順に全件返す" $ do
     repo <- newInMemoryUserRepository
-    let create :<|> list = server repo
+    (logger, _getLogs) <- newCapturingLogger
+    let create :<|> list = server logger repo
     _ <- runHandler (create testUser (CreateUserRequest "Alice" "alice@example.com"))
     _ <- runHandler (create testUser (CreateUserRequest "Bob" "bob@example.com"))
     Right users <- runHandler (list testUser)
@@ -53,7 +60,8 @@ spec = describe "User handlers（単体）" $ do
 
   it "別テナントのユーザーは互いに見えない（テナント分離）" $ do
     repo <- newInMemoryUserRepository
-    let create :<|> list = server repo
+    (logger, _getLogs) <- newCapturingLogger
+    let create :<|> list = server logger repo
     _ <- runHandler (create testUser (CreateUserRequest "Alice" "alice@example.com"))
     Right acmeUsers <- runHandler (list testUser)
     Right globexUsers <- runHandler (list otherTenantUser)
@@ -62,7 +70,8 @@ spec = describe "User handlers（単体）" $ do
 
   it "採番はテナントを跨いでグローバルに行われる（DB側のSERIALに倣った挙動）" $ do
     repo <- newInMemoryUserRepository
-    let create :<|> _list = server repo
+    (logger, _getLogs) <- newCapturingLogger
+    let create :<|> _list = server logger repo
     Right acmeUser <- runHandler (create testUser (CreateUserRequest "Alice" "alice@example.com"))
     Right globexUser <- runHandler (create otherTenantUser (CreateUserRequest "Bob" "bob@example.com"))
     userId acmeUser `shouldBe` 1
@@ -70,19 +79,64 @@ spec = describe "User handlers（単体）" $ do
 
   it "Memberロールのユーザーはcreateできない（403）" $ do
     repo <- newInMemoryUserRepository
-    let create :<|> _list = server repo
+    (logger, _getLogs) <- newCapturingLogger
+    let create :<|> _list = server logger repo
     Left err <- runHandler (create memberUser (CreateUserRequest "Bob" "bob@example.com"))
     errHTTPCode err `shouldBe` 403
 
   it "Memberロールのユーザーでもlistはできる" $ do
     repo <- newInMemoryUserRepository
-    let create :<|> list = server repo
+    (logger, _getLogs) <- newCapturingLogger
+    let create :<|> list = server logger repo
     _ <- runHandler (create testUser (CreateUserRequest "Alice" "alice@example.com"))
     Right users <- runHandler (list memberUser)
     map userName users `shouldBe` ["Alice"]
 
   it "メールアドレスの形式が不正なリクエストは拒否される（400）" $ do
     repo <- newInMemoryUserRepository
-    let create :<|> _list = server repo
+    (logger, _getLogs) <- newCapturingLogger
+    let create :<|> _list = server logger repo
     Left err <- runHandler (create testUser (CreateUserRequest "Alice" "not-an-email"))
     errHTTPCode err `shouldBe` 400
+
+  it "ユーザー作成に成功するとuser_createdログが記録される" $ do
+    repo <- newInMemoryUserRepository
+    (logger, getLogs) <- newCapturingLogger
+    let create :<|> _list = server logger repo
+    Right created <- runHandler (create testUser (CreateUserRequest "Alice" "alice@example.com"))
+    logs <- getLogs
+    logs `shouldBe`
+      [ LogEntry Info "user_created"
+          [ ("tenant_id", "acme")
+          , ("subject", "test-user")
+          , ("user_id", "1")
+          ]
+      ]
+    userId created `shouldBe` 1
+
+  it "権限がない作成はuser_creation_forbiddenログが記録される（standardOutputは汚さない）" $ do
+    repo <- newInMemoryUserRepository
+    (logger, getLogs) <- newCapturingLogger
+    let create :<|> _list = server logger repo
+    _ <- runHandler (create memberUser (CreateUserRequest "Bob" "bob@example.com"))
+    logs <- getLogs
+    logs `shouldBe`
+      [ LogEntry Warn "user_creation_forbidden"
+          [ ("tenant_id", "acme")
+          , ("subject", "member-user")
+          ]
+      ]
+
+  it "不正なメールアドレスはuser_creation_invalid_emailログが記録される" $ do
+    repo <- newInMemoryUserRepository
+    (logger, getLogs) <- newCapturingLogger
+    let create :<|> _list = server logger repo
+    _ <- runHandler (create testUser (CreateUserRequest "Alice" "not-an-email"))
+    logs <- getLogs
+    logs `shouldBe`
+      [ LogEntry Warn "user_creation_invalid_email"
+          [ ("tenant_id", "acme")
+          , ("subject", "test-user")
+          , ("email", "not-an-email")
+          ]
+      ]

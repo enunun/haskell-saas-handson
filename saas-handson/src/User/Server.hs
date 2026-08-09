@@ -5,14 +5,15 @@ module User.Server
   , isValidEmail
   ) where
 
-import Auth.Types (AuthenticatedUser (authRole, authTenantId), Role (Admin))
+import Auth.Types (AuthenticatedUser (authRole, authSubject, authTenantId), Role (Admin), TenantId (unTenantId))
 import Control.Monad.IO.Class (liftIO)
 import qualified Data.Text as Text
+import Logging (Logger, logInfo, logWarn)
 import Servant
 import User.Api (API)
 import User.Error (UserError (Forbidden, InvalidEmail), throwUserError)
 import User.Repository (UserRepository (..))
-import User.Types (CreateUserRequest (..), User)
+import User.Types (CreateUserRequest (..), User (..))
 
 -- | Iteration 4で、Storeへの直接アクセスをUserRepository経由に置き換えた。
 -- ハンドラはもはや「データがどう保存されているか」を一切知らず、
@@ -26,20 +27,30 @@ import User.Types (CreateUserRequest (..), User)
 -- 解決の一部としてハンドラ本体より先に走る）が担うのに対し、認可は
 -- ハンドラ本体のドメインロジックとして書く。
 --
+-- Iteration 6で、Loggerを注入し「誰が・どのテナントとして・何をした
+-- （できなかった）か」を構造化ログとして残すようにする。
+--
 -- TODO: createUserHandlerを実装し、test/unit/User/UserSpec.hs・
 -- test/integration/User/UserSpec.hsをGREENにすること。
 -- ヒント：
--- - authRole authUserがAdminでなければUser.Error.Forbiddenを
---   User.Error.throwUserErrorで投げる。
--- - メールアドレスがisValidEmail（下に定義済み）を満たさなければ
---   User.Error.InvalidEmailをthrowUserErrorで投げる。
+-- - authRole authUserがAdminでなければ、Logging.logWarnで
+--   "user_creation_forbidden"というメッセージ・
+--   [("tenant_id", unTenantId (authTenantId authUser)), ("subject",
+--   authSubject authUser)]というfieldsでログを記録してから、
+--   User.Error.ForbiddenをUser.Error.throwUserErrorで投げる。
+-- - メールアドレスがisValidEmail（下に定義済み）を満たさなければ、
+--   同様にlogWarnで"user_creation_invalid_email"を記録してから、
+--   User.Error.InvalidEmailをthrowUserErrorで投げる（fieldsには
+--   emailも含める）。
 -- - どちらも満たせば、Iteration 4までと同じくliftIO (createUser repo
---   (authTenantId authUser) reqName reqEmail)でUserRepositoryに委譲する。
-server :: UserRepository -> Server API
-server repo = createUserHandler :<|> listUsersHandler
+--   (authTenantId authUser) reqName reqEmail)でUserRepositoryに委譲し、
+--   作られたUserのuserIdを含めてlogInfoで"user_created"を記録する
+--   （Data.Text.pack (show (userId newUser))でIntをTextに変換できる）。
+server :: Logger -> UserRepository -> Server API
+server logger repo = createUserHandler :<|> listUsersHandler
   where
     createUserHandler :: AuthenticatedUser -> CreateUserRequest -> Handler User
-    createUserHandler _authUser _req = error "TODO: Iteration 5で実装する"
+    createUserHandler _authUser _req = error "TODO: Iteration 5/6で実装する"
 
     listUsersHandler :: AuthenticatedUser -> Handler [User]
     listUsersHandler authUser = liftIO (listUsers repo (authTenantId authUser))

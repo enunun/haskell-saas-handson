@@ -498,12 +498,87 @@ PostgreSQLサーバーを立て、`/etc/hosts`に`127.0.0.1 db`のエイリア�
   （`tenant_id`単体では動作実績があるドキュメント記載の仕様に基づく
   拡張のため、動作する可能性は高いと考えている）。
 
+## Iteration 6（ロギング・可観測性）を実装した（2026-08-09）
+
+ユーザー指示「iteration 6に進もう。全体のドキュメントを更新するのを
+忘れないで」を受け、ROADMAPに追加済みだったIteration 6を、
+Iteration 2〜5と同じ方針（docs＋実コード両方、演習側TODOスタブ＋RED、
+解答例側フル実装＋GREEN）で実装した。
+
+### 設計判断
+
+- ログ出力先（`Logger`）も`UserRepository`（Iteration 4）・
+  `JWKStore`（Iteration 2）と同じHandleパターンで抽象化しDIで注入
+  する設計とした。`Logging`モジュールに`Logger`・`LogEntry`・
+  `LogLevel`型を新設し、実装として`Logging.Stdout`（本番用、
+  `fast-logger`で標準出力へJSON行を出力）・`Logging.Capturing`
+  （テスト用、メモリ上のリストに記録）の2つを用意。
+- `LogEntry`は固定のメッセージ識別子（例："user_created"）と可変の
+  詳細情報（`fields :: [(Text, Text)]`）を分離する構造化ログとして
+  設計。
+- アクセスログ（`wai-extra`の`logStdoutDev`、HTTPトランスポート層）と
+  ドメインログ（`Logging`、ビジネスロジック層）を明確に分離。前者は
+  既製のミドルウェアをそのまま使い、後者だけを`User.Server`で
+  明示的に呼ぶ。
+- `POST /users`のハンドラに、権限チェック・バリデーション失敗
+  （Warnレベル：`user_creation_forbidden`・
+  `user_creation_invalid_email`）、作成成功（Infoレベル：
+  `user_created`）のログを追加。tenant_id・subject（・成功時は
+  user_id）をfieldsに含め、Iteration 3・5で確立した型
+  （`AuthenticatedUser`・`UserError`）をログの内容として再利用した。
+- `Logging.Stdout`の動作は、`silently`パッケージ（`capture_`で標準
+  出力を捕捉）を使い自動テストで検証できるようにした
+  （`test/unit/Logging/StdoutSpec.hs`）。
+
+### 検証状況（実DBで確認済み）
+
+引き続きこのセッション内のローカルPostgres（`/etc/hosts`の`db`
+エイリアス）を使い、実際に確認した。
+
+- `saas-handson-solution`：単体テスト29件（Auth 8・Health 1・
+  Logging.Stdout 3・RepositorySpec 6・User.UserSpec 11、うち新設の
+  ログ内容検証3件を含む）、結合テスト17件、計46件が実際の
+  PostgreSQLに対して全件GREEN。
+- `saas-handson`（演習側）：`cabal build`はGREEN。単体テスト29件中
+  29件・結合テスト17件中16件がTODO由来で意図通りRED（結合テストの
+  「Authorizationヘッダなし→401」の1件のみGREEN）。`Logging.Stdout`の
+  `writeEntry`がTODOのため、それに依存するStdoutSpec・User.UserSpecの
+  テストも連鎖してREDになることを確認（意図通り、実装が積み上がる
+  ほど依存するテストも増える設計）。
+- `docs/iteration-6.md`（両側）を演習6-1〜6-5の5節構成で新規作成。
+
+### ドキュメント全体の更新状況
+
+ユーザー指示「全体のドキュメントを更新するのを忘れないで」に対応し、
+以下を確認・更新した。
+
+- 両`docs/ROADMAP.md`：Iteration 6のステータスを演習側「着手中」、
+  解答例側「完了」に更新（未実装項目も明記）。
+- 両`docs/iteration-6.md`：新規作成。
+- 本PROGRESS.md：このセクションで記録。
+- README.md等、他に「全体像」を説明するファイルがないか確認したが、
+  ROADMAP.md・PROGRESS.mdの2つが本リポジトリにおける全体進捗の
+  記録場所であり、他に更新が必要なドキュメントは見つからなかった。
+
+### 制約・未検証事項
+
+- `cabal run`で実際にサーバーを起動し、標準出力にアクセスログ
+  （`logStdoutDev`）とドメインログ（`Logging.Stdout`）の両方が
+  正しく出力されることの目視確認は、mock-oauth2-server（`mock-auth`
+  サービス）がこの環境にないため行えていない（`newJWKStore`の起動時
+  フェッチが失敗しサーバー自体が起動できない）。ロジック単体
+  （`Logging.Stdout`のJSON出力、`User.Server`のログ呼び出し）は
+  自動テストで検証済み。
+
 ## 次にやること（案）
 
-- 上記のPostgreSQL検証・mock-oauth2-serverの`role`クレームは、実際の
-  devcontainer（docker compose）環境でも一度確認するとよい。
-- Iteration 6（ロギング・可観測性）はROADMAPに追加したのみで、
-  docs・実装はまだ手を付けていない。次はこれに着手するのが自然な流れ。
-- 演習1-6・0-5・2-5・2-6・3-6・4-5・5-7のような発展課題について、
+- 上記の目視確認（`cabal run`でのアクセスログ・ドメインログの実際の
+  出力）は、実際のdevcontainer（docker compose、mock-auth・db両方
+  起動）環境で一度行うとよい。
+- ROADMAPのIteration 0〜6はすべて着手済み（解答例はすべて完了）。
+  次の一手としては、(a) 演習側の実際の解答（Red→Greenを自分の手で
+  なぞる検証）、(b) さらなるIteration追加の要否検討、のいずれかが
+  自然な流れになる。
+- 演習1-6・0-5・2-5・2-6・3-6・4-5・5-7・6-5のような発展課題について、
   必要であれば模範解答をsaas-handson-solution側に別途用意するかどうか
   を検討する（現状は解説文のみで、コードとしては用意していない）。

@@ -33,6 +33,7 @@ import Data.Text (Text)
 import qualified Data.Text.Encoding as TE
 import Data.Time (UTCTime, addUTCTime, getCurrentTime)
 import Database.PostgreSQL.Simple (close, connectPostgreSQL, execute_)
+import Logging.Capturing (newCapturingLogger)
 import Network.HTTP.Types.Header (Header, hAuthorization)
 import Server (mkApp)
 import Test.Hspec
@@ -87,7 +88,8 @@ spec = do
   otherTenantToken <- runIO (signTestToken jwk "globex" "admin")
   memberToken <- runIO (signTestToken jwk "acme" "member")
   repo <- runIO (newPostgresUserRepository testConnStr)
-  let app = resetDb >> pure (mkApp (mkJWKStore (JWKSet [jwk])) repo)
+  (logger, _getLogs) <- runIO newCapturingLogger
+  let app = resetDb >> pure (mkApp (mkJWKStore (JWKSet [jwk])) logger repo)
 
   with app $ describe "POST /users, GET /users（認証あり）" $ do
     it "POST /usersは201でid/name/emailを含むボディを返す" $
