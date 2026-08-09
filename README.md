@@ -154,4 +154,3 @@ PGPASSWORD=postgres psqldef -U postgres -h db saas_handson --apply -f db/schema.
   各プロジェクトの`docs/ROADMAP.md`
 - Haskellの文法・概念に詰まったら：`docs/haskell-reference.md`
   （演習本編とは別立てのリファレンス）
-- 作業ログ・進捗の詳細：`PROGRESS.md`
