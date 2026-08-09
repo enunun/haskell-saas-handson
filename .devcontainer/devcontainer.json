@@ -9,13 +9,12 @@
       "extensions": [
         "haskell.haskell",
         "justusadam.language-haskell",
-        "EditorConfig.EditorConfig",
         "anthropic.claude-code",
         "growthjack.claude-code-usage"
       ],
       "settings": {
         "haskell.manageHLS": "GHCup",
-        "editor.formatOnSave": false,
+        "editor.formatOnSave": true,
         "files.watcherExclude": {
           "**/dist-newstyle/**": true
         }

@@ -113,7 +113,6 @@ VSCode拡張機能：
 
 - `haskell.haskell`（公式Haskell拡張、HLS連携）
 - `justusadam.language-haskell`（シンタックスハイライト）
-- `EditorConfig.EditorConfig`
 
 コンテナ起動時に`cabal update`が自動実行される。
 
