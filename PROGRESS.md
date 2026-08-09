@@ -386,9 +386,66 @@ ROADMAPのIteration 3（マルチテナント対応）を、Iteration 2と同じ
   `cabal test saas-handson-solution:test:integration`を実行して確認
   する必要がある。
 
+## 宣言的マイグレーション（psqldef）を導入し、実DBで結合テストを検証した（2026-08-09）
+
+ユーザー指示「DBのマイグレーション・テーブル定義は宣言的ツールで管理
+したい」を受け、`psqldef`（sqldef/sqldef、PostgreSQL用の宣言的
+マイグレーションツール）を導入した。
+
+### 変更内容
+
+- `db/schema.sql`（リポジトリルート、`saas-handson`・
+  `saas-handson-solution`共有）を新設。`users`テーブルの定義を1つの
+  `CREATE TABLE`文として宣言的に記述。「マイグレーション履歴」ではなく
+  「今のテーブル定義書」として読めることを意図している。
+- `.devcontainer/Dockerfile`に`psqldef`（`psqldef_linux_${arch}.tar.gz`
+  を`/usr/local/bin`に配置、rtkと同じ導入パターン）を追加。
+- `User.Repository.Postgres`（両プロジェクト）から、起動時に暗黙に
+  実行していた`CREATE TABLE IF NOT EXISTS`を削除。スキーマ管理を
+  アプリケーションコードから完全に切り離し、`psqldef --apply -f
+  db/schema.sql`という明示的なステップに一本化した。
+- 両`docs/iteration-4.md`に「事前準備：DBスキーマの適用」節を追加し、
+  `--dry-run`→`--apply`という手順（`terraform plan`/`apply`に近い
+  メンタルモデル）を明記。「設計判断」節にも
+  「スキーマの管理を宣言的マイグレーションツールに任せる」を5点目
+  として追加。
+
+### この環境で初めて実DBに対する検証ができた
+
+これまでのセッションではdockerが使えず、PostgreSQL（Iteration 4当初は
+SQLite）に依存する結合テストは一度もこの環境で実行できていなかった。
+今回、この開発コンテナに直接`apt-get install postgresql`でローカルの
+PostgreSQLサーバーを立て、`/etc/hosts`に`127.0.0.1 db`のエイリアスを
+追加することで、アプリ・テストが使う接続文字列（`host=db ...`）を
+一切変更せずに実際のDB接続を検証できた。
+
+- `db/schema.sql`を`psqldef --dry-run`→`--apply`で適用し、意図通りの
+  DDLが生成・適用されること、再適用が冪等（`-- Nothing is modified
+  --`）であることを確認。
+- `saas-handson-solution`の結合テスト（`test/integration`、
+  `User.RepositorySpec`6件＋`Health.HealthSpec`2件＋`User.UserSpec`
+  6件、計14件）が実際のPostgreSQLに対して**全件GREEN**になることを
+  確認（単体テスト17件と合わせて計31件GREEN）。これはこの教材の
+  Postgres対応コードが実際に正しく動作することの初めての実証である。
+- `saas-handson`（演習側）の結合テストも同じ実DBに対して実行し、
+  14件中13件がTODO由来で意図通りREDになる（「Authorizationヘッダ
+  なし→401」の1件のみ、認証チェックがハンドラ本体より先に走るため
+  GREEN）ことを確認。DB接続・スキーマそのものは正しく機能しており、
+  失敗はすべて`error "TODO: ..."`に起因することを確認済み。
+- このローカルPostgresサーバー・`/etc/hosts`のエイリアスはこの
+  セッション（コンテナ）限りの一時的な検証用セットアップであり、
+  リポジトリの永続的な状態には影響しない（devcontainerを実際に
+  Docker環境でrebuildする際は、`.devcontainer/docker-compose.yml`の
+  `db`サービスが同じ役割を果たす）。
+
 ## 次にやること（案）
 
-- 上記のPostgreSQL結合テストをDocker環境で実際に検証する。
+- 上記の検証はこのセッション内のローカルPostgresで行ったものであり、
+  実際のdevcontainer（docker compose）環境での`db`サービスを使った
+  検証はまだ行っていない。次回Docker環境でdevcontainerをrebuildし、
+  `psqldef`・`db`サービスが期待通り動くことを確認するとよい
+  （ロジック自体はこのセッションで実証済みのため、通常は問題なく
+  動くはずである）。
 - Iteration 5（権限管理・エラー設計）以降のdocsはまだ作成していない。
 - 演習1-6・0-5・2-5・2-6・3-6・4-5のような発展課題について、必要で
   あれば模範解答をsaas-handson-solution側に別途用意するかどうかを検討

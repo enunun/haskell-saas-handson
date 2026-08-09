@@ -13,7 +13,6 @@ import Database.PostgreSQL.Simple
   , Only (..)
   , close
   , connectPostgreSQL
-  , execute_
   , query
   )
 import Database.PostgreSQL.Simple.FromRow (FromRow (..), field)
@@ -35,6 +34,12 @@ instance FromRow User where
 -- （例: "host=db port=5432 dbname=saas_handson user=postgres
 -- password=postgres"）。
 --
+-- テーブルの作成・変更はこの関数の責務ではない。スキーマは
+-- db/schema.sqlとpsqldef（宣言的マイグレーションツール）で別途管理する
+-- （docs/iteration-4.mdを参照）。アプリケーションが起動のたびに
+-- 独自にDDLを実行してしまうと、「今のスキーマが何か」を知る手段が
+-- アプリケーションコードとdb/schema.sqlの2箇所に分散してしまう。
+--
 -- postgresql-simpleのConnectionは（sqlite-simpleと同様）複数スレッドから
 -- 同時に使うことを想定していない。IORefやMVarでの手作業の直列化ではなく、
 -- resource-poolのPool Connectionを使い、リクエストごとにプールから
@@ -45,15 +50,6 @@ instance FromRow User where
 newPostgresUserRepository :: ByteString -> IO UserRepository
 newPostgresUserRepository connStr = do
   pool <- newPool (defaultPoolConfig (connectPostgreSQL connStr) close 60 10)
-  withResource pool $ \conn -> do
-    _ <- execute_ conn
-      "CREATE TABLE IF NOT EXISTS users \
-      \( id SERIAL PRIMARY KEY \
-      \, tenant_id TEXT NOT NULL \
-      \, name TEXT NOT NULL \
-      \, email TEXT NOT NULL \
-      \)"
-    pure ()
   pure UserRepository
     { createUser = createUserImpl pool
     , listUsers = listUsersImpl pool

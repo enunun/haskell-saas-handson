@@ -34,6 +34,47 @@ PostgreSQL実装の両方が同じ`UserRepository`という契約を満たすこ
 `saas-handson-solution/docs/iteration-4.md`の対応する節を参照する。
 コマンドはリポジトリルート（`cabal.project`のある場所）から実行する。
 
+## 事前準備：DBスキーマの適用
+
+演習に入る前に、PostgreSQLに`users`テーブルを作成しておく必要がある。
+本教材ではテーブル定義を`db/schema.sql`という1つのファイルに宣言的に
+書き、`psqldef`（PostgreSQL用の宣言的マイグレーションツール、
+devcontainerにインストール済み）でDBへ適用する。
+
+```sql
+-- db/schema.sql
+CREATE TABLE users (
+  id        SERIAL PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  name      TEXT NOT NULL,
+  email     TEXT NOT NULL
+);
+```
+
+`psqldef`は「CREATE TABLEしろ」「この列を追加しろ」という**手順**を
+書くツールではない。`db/schema.sql`に書かれた**あるべき最終形**と、
+今のDBの状態を比較し、差分を自動的に計算して適用する。そのため
+`db/schema.sql`は「マイグレーション履歴」ではなく、そのまま
+「今のテーブル定義書」として読める（常に最新のスキーマそのものが
+書いてある）。
+
+まず`--dry-run`で、何が実行されようとしているかを確認する。
+
+```sh
+PGPASSWORD=postgres psqldef -U postgres -h db saas_handson --dry-run -f db/schema.sql
+```
+
+問題なければ`--apply`で実際に適用する。
+
+```sh
+PGPASSWORD=postgres psqldef -U postgres -h db saas_handson --apply -f db/schema.sql
+```
+
+もう一度`--dry-run`を実行すると、今度は`-- Nothing is modified --`と
+表示され、何も変更が必要ない（＝DBの状態が`db/schema.sql`と一致して
+いる）ことが確認できる。`db/schema.sql`を変更した場合も、同じ2つの
+コマンドを再実行するだけでよい。
+
 ## 演習4-1：Repository抽象化とDIの関係を読み解く
 
 以下のファイルはすでに完成しており変更不要である。これらを読み、
@@ -109,8 +150,10 @@ cabal test saas-handson --test-options='--match "in-memory"'
 ## 演習4-3：PostgreSQL実装を実装する
 
 `src/User/Repository/Postgres.hs`の`createUserImpl`・`listUsersImpl`を
-実装する。テーブルのスキーマ作成・`FromRow User`インスタンス・
-コネクションプール（`resource-pool`）の管理はすでに用意されている。
+実装する。`FromRow User`インスタンス・コネクションプール
+（`resource-pool`）の管理はすでに用意されている。テーブルの作成は
+アプリケーションの責務ではない（「事前準備」で`psqldef`を使って別途
+行う）。
 
 ```haskell
 createUserImpl :: Pool Connection -> TenantId -> Text -> Text -> IO User
@@ -142,7 +185,8 @@ listUsersImpl _pool _tenantId = error "TODO: Iteration 4で実装する"
   変換される）。
 
 この演習は実DBに依存するテスト（`test/integration/User/RepositorySpec.hs`）
-で確認するため、devcontainerのdbサービスが起動していることを確認する。
+で確認するため、devcontainerのdbサービスが起動していること、
+「事前準備」でスキーマを適用済みであることを確認する。
 
 ```sh
 cabal test saas-handson --test-options='--match "PostgreSQL"'
@@ -175,7 +219,8 @@ devcontainerの外や、dbサービスが起動していない環境では失敗
 （`libpq: failed (could not translate host name "db" to address ...)`
 のようなエラーになる）。これは実装のバグではなく、結合テストが
 「実DBに依存してよい」というテスト方針どおりに動いていることを意味
-する。
+する。「事前準備」でスキーマを適用し忘れている場合は、代わりに
+`relation "users" does not exist`のようなエラーになる。
 
 ## 演習4-5（発展）：実サーバーでの永続化確認・設計の一般化
 
@@ -207,6 +252,7 @@ devcontainerの外や、dbサービスが起動していない環境では失敗
 | コネクションプール（`Pool`・`withResource`） | `resource-pool`パッケージ |
 | SQL文字列リテラルの複数行結合 | `{-# LANGUAGE OverloadedStrings #-}`（`Query`型が`IsString`のインスタンスであるため） |
 | `postgresql-simple`のビルド自体に必要なCライブラリ | `libpq-dev`（`.devcontainer/Dockerfile`にすでに追加済み。ローカル環境で自分でセットアップする場合は`apt install libpq-dev`等が必要） |
+| DBスキーマの宣言的な適用 | `psqldef`（`.devcontainer/Dockerfile`にすでに追加済み。Haskellのパッケージではなく単体のCLIツール） |
 
 `cabal build`・`cabal test`で「Could not load module」のようなエラーが
 出た場合は、上記のいずれかが`.cabal`の`build-depends`に不足している

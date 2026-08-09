@@ -28,4 +28,19 @@ RUN set -eux; \
       | tar -xz -C /usr/local/bin rtk; \
     chmod +x /usr/local/bin/rtk
 
+# Iteration 4で導入した宣言的DBマイグレーションツール（PostgreSQL用）。
+# db/schema.sqlに書いた「あるべきスキーマ」とDBの現在の状態を比較し、
+# 差分（CREATE TABLE・ALTER TABLE等）を自動的に計算・適用する。
+ARG SQLDEF_VERSION=3.11.19
+
+RUN set -eux; \
+    case "$(dpkg --print-architecture)" in \
+        amd64) sqldef_arch="amd64" ;; \
+        arm64) sqldef_arch="arm64" ;; \
+        *) echo "Unsupported architecture" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL "https://github.com/sqldef/sqldef/releases/download/v${SQLDEF_VERSION}/psqldef_linux_${sqldef_arch}.tar.gz" \
+      | tar -xz -C /usr/local/bin psqldef; \
+    chmod +x /usr/local/bin/psqldef
+
 WORKDIR /workspace

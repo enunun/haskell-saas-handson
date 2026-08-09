@@ -3,10 +3,10 @@
 このドキュメントは`saas-handson/docs/iteration-4.md`の演習問題に対応する
 解答解説である。見出しの番号（4-1〜4-5）は演習側と対応している。
 
-## 設計判断：PostgreSQL・DI・テスト方針・DB側での自動発番
+## 設計判断：PostgreSQL・DI・テスト方針・DB側での自動発番・宣言的マイグレーション
 
 ROADMAPのIteration 4は「in-memoryストアからDBへの置き換え、Repository
-抽象化」を目的とする。本教材では以下の4点を軸に設計した。
+抽象化」を目的とする。本教材では以下の5点を軸に設計した。
 
 1. **DBはPostgreSQL（`postgresql-simple`）を使う。** SQLiteではなく
    実務のtoB SaaSでよく使われるPostgreSQLを選ぶことで、コネクション
@@ -30,6 +30,15 @@ ROADMAPのIteration 4は「in-memoryストアからDBへの置き換え、Reposi
    という責務を負っていた。PostgreSQLの`SERIAL`と`INSERT ... RETURNING
    id`を使うと、採番の原子性はDBが保証してくれるため、アプリケーション
    側の並行制御コードが不要になる。
+5. **スキーマの管理は宣言的マイグレーションツール（`psqldef`）に任せ、
+   アプリケーションコードから切り離す。** 当初`newPostgresUserRepository`
+   の中で`CREATE TABLE IF NOT EXISTS`をその場で実行していたが、これは
+   「今のスキーマが何か」を知る手段がアプリケーションコードと
+   （将来増えるはずの）マイグレーション履歴の2箇所に分散してしまう
+   手続き的な仕組みだった。`db/schema.sql`に「あるべきテーブル定義」を
+   宣言的に書き、`psqldef`にDBの現在の状態との差分を計算・適用させる
+   ことで、`db/schema.sql`をそのまま「常に最新のテーブル定義書」として
+   扱えるようにした。
 
 この設計の帰結として、idの採番方式がIteration 3までの「テナントごとに
 1から連番」から「テナントを跨いだグローバルな連番」に変わった。これは
@@ -38,6 +47,49 @@ DBの`SERIAL`が単一のテーブルに対して単一の連番を払い出す�
 持たない）という制約に合わせたものであり、in-memory実装もこれに合わせて
 挙動を変更した（`test/unit/User/RepositorySpec.hs`・
 `test/unit/User/UserSpec.hs`の該当テストを参照）。
+
+## 事前準備の解説：DBスキーマの適用
+
+```sql
+-- db/schema.sql
+CREATE TABLE users (
+  id        SERIAL PRIMARY KEY,
+  tenant_id TEXT NOT NULL,
+  name      TEXT NOT NULL,
+  email     TEXT NOT NULL
+);
+```
+
+`psqldef`（[sqldef/sqldef](https://github.com/sqldef/sqldef)）は
+PostgreSQL・MySQL・SQLite等向けの宣言的マイグレーションツール群
+（`psqldef`・`mysqldef`・`sqlite3def`等）の1つである。「マイグレーション
+ファイルを順番に適用する」という手続き的な仕組み（Flyway、
+Railsのマイグレーション、あるいはHaskellの`postgresql-simple-migration`
+等）は、`0001_create_users.sql`・`0002_add_tenant_id.sql`のように変更
+履歴を積み重ねる方式のため、「今のテーブル定義は結局どうなっているか」
+を知るには全履歴を頭の中で再生する必要がある。`psqldef`はこれと異なり、
+`db/schema.sql`に**最終的にあるべきスキーマ**を1つのCREATE TABLE文と
+して書き、実行中のDBの現在の状態と比較して差分（ALTER TABLE等）を
+自動的に計算・適用する。そのため`db/schema.sql`は常に「今の正しい
+テーブル定義」を表しており、マイグレーション手段であると同時にテーブル
+定義書を兼ねる。
+
+```sh
+PGPASSWORD=postgres psqldef -U postgres -h db saas_handson --dry-run -f db/schema.sql
+PGPASSWORD=postgres psqldef -U postgres -h db saas_handson --apply -f db/schema.sql
+```
+
+`--dry-run`は実際にDDLを実行せず、何が実行されようとしているかだけを
+表示する（`terraform plan`に近い）。`--apply`で初めて実際にDDLを適用
+する（`terraform apply`に近い）。適用済みの状態で再度`--dry-run`する
+と`-- Nothing is modified --`と表示され、冪等であることが確認できる。
+
+`newPostgresUserRepository`から`CREATE TABLE IF NOT EXISTS`を削除した
+のはこのためである。アプリケーションの起動時に暗黙にDDLを実行する
+（しかもテーブルが存在する前提のコードとテーブルを作るコードが同じ
+ファイルに同居する）のではなく、スキーマの管理を独立した明示的な
+ステップに切り出すことで、「今のスキーマは`db/schema.sql`を見れば
+分かる」という状態を作っている。
 
 ## 演習4-1の解説：Repository抽象化とDIの関係を読み解く
 
@@ -141,8 +193,7 @@ listUsersImpl pool tenantId =
 
 ### `SERIAL` + `RETURNING id`：自動発番をDBに委ねる
 
-テーブル定義（`newPostgresUserRepository`）は`id SERIAL PRIMARY KEY`と
-なっている。`SERIAL`はPostgreSQL内部で暗黙のシーケンス
+テーブル定義（`db/schema.sql`）は`id SERIAL PRIMARY KEY`となっている。`SERIAL`はPostgreSQL内部で暗黙のシーケンス
 （`users_id_seq`）を作り、行を挿入するたびに次の値を自動的に払い出す。
 複数のコネクションから同時に`INSERT`されても、シーケンスからの値の
 取得はPostgreSQLエンジン内部でアトミックに行われるため、
