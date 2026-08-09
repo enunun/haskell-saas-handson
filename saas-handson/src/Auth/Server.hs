@@ -9,7 +9,7 @@ module Auth.Server
   , verifyToken
   ) where
 
-import Auth.Types (AuthenticatedUser (..), TenantId (..))
+import Auth.Types (AuthenticatedUser (..), Role, TenantId (..))
 import Control.Monad.Except (ExceptT, runExceptT, throwError)
 import Control.Monad.IO.Class (liftIO)
 import Crypto.JWT (ClaimsSet, HasClaimsSet (..), JWKSet, JWTError)
@@ -69,7 +69,9 @@ bearerToken req = do
   either (const Nothing) Just (TE.decodeUtf8' rest)
 
 -- | JWTの署名をJWKSetで検証し、有効期限（exp）等のクレームを検証したうえ
--- で、subクレームをAuthenticatedUserとして取り出す。
+-- で、sub・tenant_id・roleクレームをAuthenticatedUserとして取り出す。
+-- 署名不正・期限切れ・sub/tenant_id/roleクレーム欠落や不正な値の
+-- いずれもJWTErrorとして失敗する。
 --
 -- HTTPのリクエスト表現から独立しているため、単体テストではHTTP層を
 -- 経由せずこの関数を直接呼び出して検証できる。
@@ -81,32 +83,37 @@ verifyToken (JWKStore jwks) token = runExceptT (verify jwks token)
 -- ヒント：
 -- - Crypto.JWT.decodeCompactでコンパクト表現をデコードする
 --   （型は:: ExceptT JWTError IO SignedJWTと明示すること）。
--- - Crypto.JWT.verifyJWT（verifyClaimsではない点に注意。TenantClaimsは
---   標準のClaimsSetにtenant_idを追加した独自のペイロード型なので、
+-- - Crypto.JWT.verifyJWT（verifyClaimsではない点に注意。AuthClaimsは
+--   標準のClaimsSetにtenant_id・roleを追加した独自のペイロード型なので、
 --   ClaimsSet専用のverifyClaimsではなく汎用のverifyJWTを使う）で
 --   JWKSetに対して署名・有効期限を検証する。
 -- - subクレームの取り出しにはCrypto.JWT.claimSubとControl.Lensの
 --   (^?)・_Just・Crypto.JWT.stringを組み合わせる
---   （TenantClaimsのtenantClaimsSetフィールドに対して行う）。
--- - tenant_idクレームの取り出しはTenantClaimsのtenantClaimsTenantId
---   フィールドをそのまま使えばよい（FromJSONインスタンスが既に
---   パース済みにしてくれている）。
+--   （AuthClaimsのauthClaimsSetフィールドに対して行う）。
+-- - tenant_id・roleクレームの取り出しはAuthClaimsのauthClaimsTenantId・
+--   authClaimsRoleフィールドをそのまま使えばよい（FromJSONインスタンス
+--   が既にパース済みにしてくれている。roleが"admin"・"member"以外の
+--   値であれば、このFromJSONインスタンスの時点でパース自体が失敗する）。
 verify :: JWKSet -> Text -> ExceptT JWTError IO AuthenticatedUser
-verify _jwks _token = error "TODO: Iteration 2/3で実装する"
+verify _jwks _token = error "TODO: Iteration 2/3/5で実装する"
 
 -- | 標準のClaimsSet（RFC 7519で定義されたsub・exp等）に、非標準クレーム
--- であるtenant_idを追加したサブタイプ。jose（Crypto.JWT）は追加クレーム
--- を扱う場合、ClaimsSetをラップした独自の型にHasClaimsSet・FromJSON
--- インスタンスを与えることを推奨している（unregisteredClaimsは非推奨）。
--- verifyJWTはこの型を検証対象のペイロードとして受け取る。
-data TenantClaims = TenantClaims
-  { tenantClaimsSet      :: ClaimsSet
-  , tenantClaimsTenantId :: Text
+-- であるtenant_id・roleを追加したサブタイプ。jose（Crypto.JWT）は追加
+-- クレームを扱う場合、ClaimsSetをラップした独自の型にHasClaimsSet・
+-- FromJSONインスタンスを与えることを推奨している（unregisteredClaimsは
+-- 非推奨）。verifyJWTはこの型を検証対象のペイロードとして受け取る。
+-- roleクレームのパースにはAuth.TypesのFromJSON Roleインスタンスを使う
+-- ため、値が"admin"・"member"以外であればここで（＝JWT全体の検証結果
+-- として）失敗する。
+data AuthClaims = AuthClaims
+  { authClaimsSet      :: ClaimsSet
+  , authClaimsTenantId :: Text
+  , authClaimsRole     :: Role
   }
 
-instance HasClaimsSet TenantClaims where
-  claimsSet f s = fmap (\a' -> s { tenantClaimsSet = a' }) (f (tenantClaimsSet s))
+instance HasClaimsSet AuthClaims where
+  claimsSet f s = fmap (\a' -> s { authClaimsSet = a' }) (f (authClaimsSet s))
 
-instance FromJSON TenantClaims where
-  parseJSON = withObject "TenantClaims" $ \o ->
-    TenantClaims <$> parseJSON (Object o) <*> o .: "tenant_id"
+instance FromJSON AuthClaims where
+  parseJSON = withObject "AuthClaims" $ \o ->
+    AuthClaims <$> parseJSON (Object o) <*> o .: "tenant_id" <*> o .: "role"

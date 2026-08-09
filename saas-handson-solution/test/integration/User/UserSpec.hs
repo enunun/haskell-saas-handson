@@ -59,21 +59,22 @@ resetDb = do
 -- | テスト専用のRSA鍵ペアで署名した有効なトークンを組み立てる。実サーバー
 -- では外部の認証サーバー（mock-oauth2-server）が発行するが、結合テストは
 -- 外部プロセスに依存させたくないため、テスト内で鍵生成・署名まで行う。
-signTestToken :: JWK -> Text -> IO Text
-signTestToken jwk tenantId = do
+signTestToken :: JWK -> Text -> Text -> IO Text
+signTestToken jwk tenantId role = do
   now <- getCurrentTime
-  Right token <- runJOSE (buildToken jwk now tenantId)
+  Right token <- runJOSE (buildToken jwk now tenantId role)
   pure (TE.decodeUtf8 (LBS.toStrict (encodeCompact token)))
 
 -- | eの型（JWTError）をrunJOSEに伝えるため、型シグネチャを明示した
 -- トップレベル関数として定義する（do記法の中に直接書くと曖昧になる）。
-buildToken :: JWK -> UTCTime -> Text -> JOSE JWTError IO SignedJWT
-buildToken jwk now tenantId = do
+buildToken :: JWK -> UTCTime -> Text -> Text -> JOSE JWTError IO SignedJWT
+buildToken jwk now tenantId role = do
   alg <- bestJWSAlg jwk
   let claims = addClaim "tenant_id" (String tenantId)
-        $ emptyClaimsSet
-            & claimSub ?~ "alice"
-            & claimExp ?~ NumericDate (addUTCTime 3600 now)
+             $ addClaim "role" (String role)
+             $ emptyClaimsSet
+                 & claimSub ?~ "alice"
+                 & claimExp ?~ NumericDate (addUTCTime 3600 now)
   signClaims jwk (newJWSHeaderProtected alg) claims
 
 authHeader :: Text -> Header
@@ -82,8 +83,9 @@ authHeader token = (hAuthorization, "Bearer " <> TE.encodeUtf8 token)
 spec :: Spec
 spec = do
   jwk <- runIO (genJWK (RSAGenParam (2048 `div` 8)))
-  token <- runIO (signTestToken jwk "acme")
-  otherTenantToken <- runIO (signTestToken jwk "globex")
+  token <- runIO (signTestToken jwk "acme" "admin")
+  otherTenantToken <- runIO (signTestToken jwk "globex" "admin")
+  memberToken <- runIO (signTestToken jwk "acme" "member")
   repo <- runIO (newPostgresUserRepository testConnStr)
   let app = resetDb >> pure (mkApp (mkJWKStore (JWKSet [jwk])) repo)
 
@@ -115,3 +117,17 @@ spec = do
       _ <- request "POST" "/users" [("Content-Type", "application/json"), authHeader token]
         [json|{name:"Alice",email:"alice@example.com"}|]
       request "GET" "/users" [authHeader otherTenantToken] "" `shouldRespondWith` [json|[]|]
+
+  with app $ describe "POST /users（権限・バリデーション）" $ do
+    it "Memberロールのトークンでは403 Forbiddenが返る" $
+      request "POST" "/users" [("Content-Type", "application/json"), authHeader memberToken]
+        [json|{name:"Bob",email:"bob@example.com"}|]
+        `shouldRespondWith` 403
+
+    it "Memberロールのトークンでも GET /usersはできる" $
+      request "GET" "/users" [authHeader memberToken] "" `shouldRespondWith` [json|[]|]
+
+    it "不正な形式のメールアドレスでは400 Bad Requestが返る" $
+      request "POST" "/users" [("Content-Type", "application/json"), authHeader token]
+        [json|{name:"Bob",email:"not-an-email"}|]
+        `shouldRespondWith` 400

@@ -2,8 +2,8 @@
 
 module User.UserSpec (spec) where
 
-import Auth.Types (AuthenticatedUser (..), TenantId (..))
-import Servant (( :<|> ) (..))
+import Auth.Types (AuthenticatedUser (..), Role (..), TenantId (..))
+import Servant (( :<|> ) (..), ServerError (errHTTPCode))
 import Servant.Server (runHandler)
 import Test.Hspec
 import User.Repository.InMemory (newInMemoryUserRepository)
@@ -20,10 +20,13 @@ import User.Types (CreateUserRequest (..), User (..))
 -- （in-memory実装・PostgreSQL実装が同じ契約を満たすことは
 -- User.RepositorySpec〈単体・結合の両方〉が検証する）。
 testUser :: AuthenticatedUser
-testUser = AuthenticatedUser "test-user" (TenantId "acme")
+testUser = AuthenticatedUser "test-user" (TenantId "acme") Admin
 
 otherTenantUser :: AuthenticatedUser
-otherTenantUser = AuthenticatedUser "other-user" (TenantId "globex")
+otherTenantUser = AuthenticatedUser "other-user" (TenantId "globex") Admin
+
+memberUser :: AuthenticatedUser
+memberUser = AuthenticatedUser "member-user" (TenantId "acme") Member
 
 spec :: Spec
 spec = describe "User handlers（単体）" $ do
@@ -64,3 +67,22 @@ spec = describe "User handlers（単体）" $ do
     Right globexUser <- runHandler (create otherTenantUser (CreateUserRequest "Bob" "bob@example.com"))
     userId acmeUser `shouldBe` 1
     userId globexUser `shouldBe` 2
+
+  it "Memberロールのユーザーはcreateできない（403）" $ do
+    repo <- newInMemoryUserRepository
+    let create :<|> _list = server repo
+    Left err <- runHandler (create memberUser (CreateUserRequest "Bob" "bob@example.com"))
+    errHTTPCode err `shouldBe` 403
+
+  it "Memberロールのユーザーでもlistはできる" $ do
+    repo <- newInMemoryUserRepository
+    let create :<|> list = server repo
+    _ <- runHandler (create testUser (CreateUserRequest "Alice" "alice@example.com"))
+    Right users <- runHandler (list memberUser)
+    map userName users `shouldBe` ["Alice"]
+
+  it "メールアドレスの形式が不正なリクエストは拒否される（400）" $ do
+    repo <- newInMemoryUserRepository
+    let create :<|> _list = server repo
+    Left err <- runHandler (create testUser (CreateUserRequest "Alice" "not-an-email"))
+    errHTTPCode err `shouldBe` 400

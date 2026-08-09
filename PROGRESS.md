@@ -438,15 +438,72 @@ PostgreSQLサーバーを立て、`/etc/hosts`に`127.0.0.1 db`のエイリア�
   Docker環境でrebuildする際は、`.devcontainer/docker-compose.yml`の
   `db`サービスが同じ役割を果たす）。
 
+## Iteration 6（ロギング）をROADMAPに追加し、Iteration 5を実装した（2026-08-09）
+
+ユーザー指示「次のiterationに進もう。もしロギングがどこにも含まれて
+いなければ追加のイテレーションを設定して」を受け、まずROADMAP.md
+（両プロジェクト）にロギングがIteration 0〜5のどこにも含まれていない
+ことを確認した上でIteration 6（ロギング・可観測性、未着手）を追加した。
+続けてIteration 5（権限管理・エラー設計）を、Iteration 2〜4と同じ方針
+（docs＋実コード両方、演習側TODOスタブ＋RED、解答例側フル実装＋GREEN）
+で実装した。
+
+### 設計判断
+
+- ロールはJWTの`role`クレーム（`"admin"`／`"member"`）として受け取る。
+  Iteration 3の`tenant_id`と同じ設計思想（認証サーバーが検証した上で
+  クレーム発行し、アプリ側は信頼するだけ）。`Auth.Types`に
+  `Role (Admin | Member)`を追加し、`AuthenticatedUser`に
+  `authRole :: Role`を追加。`Auth.Server`の`TenantClaims`を
+  `AuthClaims`にリネームし、`role`フィールドを追加した
+  （`FromJSON Role`が"admin"/"member"以外の値を弾く）。
+- 認証（401、Iteration 2の`AuthProtect`）と認可（403、本Iteration）を
+  明確に分離：認可はハンドラ本体（`User.Server`）のドメインロジックと
+  して実装する。
+- ドメインエラー型`UserError`（`Forbidden`｜`InvalidEmail Text`）を
+  新設（`User.Error`モジュール）。HTTPの語彙（`ServerError`・
+  ステータスコード）を一切知らない型として設計し、
+  `toServerError :: UserError -> ServerError`という1関数だけがHTTPへの
+  マッピング（Forbidden→403、InvalidEmail→400、JSONボディ＋
+  Content-Typeヘッダ付与）を担う。
+- `POST /users`は`Admin`ロールのみ許可（`Member`は403）。メール
+  アドレスの簡易形式チェック（`@`がちょうど1つ、両側が空でない）を
+  追加し、不正なら400。権限チェックをバリデーションより先に行う
+  （OWASPの一般的な推奨：権限のない相手にリクエスト内容の検証結果を
+  返さない）。
+
+### 検証状況（実DBで確認済み）
+
+引き続きこのセッション内のローカルPostgres（`/etc/hosts`の`db`
+エイリアス、前回のIteration 4検証から起動したまま）を使い、実際に
+確認した。
+
+- `saas-handson-solution`：単体テスト23件（Auth.AuthSpec 8件・
+  Health 1件・RepositorySpec 6件・User.UserSpec 8件）、結合テスト
+  17件（Health 2件・RepositorySpec 6件・User.UserSpec 9件、うち
+  新設の「POST /users（権限・バリデーション）」3件を含む）、
+  計40件が実際のPostgreSQLに対して全件GREEN。
+- `saas-handson`（演習側）：`cabal build`はGREEN。単体テスト23件中
+  23件・結合テスト17件中16件がTODO由来で意図通りRED（結合テストの
+  「Authorizationヘッダなし→401」の1件のみ、認可チェックより先に
+  認証チェックが走るためGREEN）。DB接続自体は正常に機能しており、
+  失敗はすべて`error "TODO: ..."`に起因することを確認済み。
+- `docs/iteration-5.md`（両側）を演習5-1〜5-7の7節構成で新規作成。
+
+### 制約・未検証事項
+
+- 演習5-2・5-7で使うmock-oauth2-serverの`claims`パラメータへの
+  `role`フィールド追加（`claims={"tenant_id":"acme","role":"admin"}`）
+  は、Iteration 3のときと同様この環境では実機検証できていない
+  （`tenant_id`単体では動作実績があるドキュメント記載の仕様に基づく
+  拡張のため、動作する可能性は高いと考えている）。
+
 ## 次にやること（案）
 
-- 上記の検証はこのセッション内のローカルPostgresで行ったものであり、
-  実際のdevcontainer（docker compose）環境での`db`サービスを使った
-  検証はまだ行っていない。次回Docker環境でdevcontainerをrebuildし、
-  `psqldef`・`db`サービスが期待通り動くことを確認するとよい
-  （ロジック自体はこのセッションで実証済みのため、通常は問題なく
-  動くはずである）。
-- Iteration 5（権限管理・エラー設計）以降のdocsはまだ作成していない。
-- 演習1-6・0-5・2-5・2-6・3-6・4-5のような発展課題について、必要で
-  あれば模範解答をsaas-handson-solution側に別途用意するかどうかを検討
-  する（現状は解説文のみで、コードとしては用意していない）。
+- 上記のPostgreSQL検証・mock-oauth2-serverの`role`クレームは、実際の
+  devcontainer（docker compose）環境でも一度確認するとよい。
+- Iteration 6（ロギング・可観測性）はROADMAPに追加したのみで、
+  docs・実装はまだ手を付けていない。次はこれに着手するのが自然な流れ。
+- 演習1-6・0-5・2-5・2-6・3-6・4-5・5-7のような発展課題について、
+  必要であれば模範解答をsaas-handson-solution側に別途用意するかどうか
+  を検討する（現状は解説文のみで、コードとしては用意していない）。
