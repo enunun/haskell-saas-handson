@@ -15,9 +15,15 @@ Refactorのサイクルを1回以上含み、完了時点で常に完全に動�
 
 - **実装する機能**：`POST /users`（ユーザー登録）、`GET /users`（一覧取得）
   ※データはin-memoryで保持する
+- **含むリファクタリング**：機能が2つ（Health, User）になるタイミングで、
+  技術層別構成（`src/Api.hs`／`Server.hs`／`Types.hs`）から機能別
+  ディレクトリ構成（`src/Health/`, `src/User/`というVertical Slice）へ
+  移行する。1機能しか存在しないIteration 0の段階で先回りして機能別に
+  分けるのはYAGNIに反するため、境界の引き方が実際に見えるこの
+  タイミングで行う（詳細は`docs/iteration-1.md`）
 - **目的**：toB SaaSの土台となるユーザーリソースのCRUDを、永続化を伴わない
   最小構成で確立する
-- **状態**：未着手
+- **状態**：完了
 
 ## Iteration 2：認証
 

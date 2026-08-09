@@ -1,9 +1,11 @@
 module Main (main) where
 
 import Network.Wai.Handler.Warp (run)
-import Server (app)
+import Server (mkApp)
+import User.Server (newStore)
 
 main :: IO ()
 main = do
+  store <- newStore
   putStrLn "listening on port 8080"
-  run 8080 app
+  run 8080 (mkApp store)

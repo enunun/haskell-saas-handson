@@ -1,9 +1,13 @@
+{-# LANGUAGE OverloadedStrings #-}
+
 module HealthSpec (spec) where
 
-import Server (server)
+import Servant (( :<|> ) (..))
+import Server (mkServer)
 import Servant.Server (runHandler)
 import Test.Hspec
 import Types (HealthResponse (..))
+import User.Server (newStore)
 
 -- | ハンドラの戻り値を直接検証する単体テスト。
 --
@@ -16,5 +20,7 @@ import Types (HealthResponse (..))
 spec :: Spec
 spec = describe "healthHandler（単体）" $
   it "statusフィールドにokを返す" $ do
-    result <- runHandler server
+    store <- newStore
+    let healthHandler :<|> _rest = mkServer store
+    result <- runHandler healthHandler
     result `shouldBe` Right (HealthResponse "ok")

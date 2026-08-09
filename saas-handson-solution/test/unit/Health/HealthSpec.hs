@@ -1,9 +1,11 @@
-module HealthSpec (spec) where
+{-# LANGUAGE OverloadedStrings #-}
 
-import Server (server)
+module Health.HealthSpec (spec) where
+
+import Health.Server (server)
+import Health.Types (HealthResponse (..))
 import Servant.Server (runHandler)
 import Test.Hspec
-import Types (HealthResponse (..))
 
 -- | ハンドラの戻り値を直接検証する単体テスト。
 --

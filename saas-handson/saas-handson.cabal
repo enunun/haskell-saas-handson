@@ -9,6 +9,9 @@ library
     exposed-modules:  Api
                     , Server
                     , Types
+                    , User.Api
+                    , User.Server
+                    , User.Types
     build-depends:    base >=4.14 && <5
                     , servant-server
                     , warp
@@ -19,6 +22,7 @@ library
 executable saas-handson
     hs-source-dirs:   app
     main-is:          Main.hs
+    ghc-options:      -threaded
     build-depends:    base >=4.14 && <5
                     , saas-handson
                     , warp
@@ -29,6 +33,7 @@ test-suite unit
     hs-source-dirs:     test/unit
     main-is:            Spec.hs
     other-modules:      HealthSpec
+                    , User.UserSpec
     build-depends:      base >=4.14 && <5
                       , saas-handson
                       , hspec
@@ -41,10 +46,12 @@ test-suite integration
     hs-source-dirs:     test/integration
     main-is:            Spec.hs
     other-modules:      HealthSpec
+                    , User.UserSpec
     build-depends:      base >=4.14 && <5
                       , saas-handson
                       , hspec
                       , hspec-wai
+                      , hspec-wai-json
                       , servant-server
                       , wai
                       , aeson

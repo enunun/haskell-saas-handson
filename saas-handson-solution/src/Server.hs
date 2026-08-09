@@ -1,27 +1,21 @@
 module Server
-  ( app
-  , server
+  ( mkApp
+  , mkServer
   ) where
 
 import Api (API, api)
 import Servant
-import Types (HealthResponse (..))
+import qualified Health.Server as Health
+import qualified User.Server as User
+import User.Server (Store)
 
--- | APIハンドラの実装。
+-- | アプリケーション全体のハンドラ実装。
 --
--- 各エンドポイントに対応する処理を1つの値として合成する。
--- server の型は API 型から自動的に導出され、両者が一致しない場合は
--- コンパイルエラーとなる。
-server :: Server API
-server = healthHandler
-  where
-    healthHandler :: Handler HealthResponse
-    healthHandler = pure (HealthResponse "ok")
+-- 機能ごとのserver値を:<|>で合成する。UserはIORefで状態を持つため、
+-- mkServer/mkAppはStoreを引数に取る関数になっている
+-- （Healthのみだった頃は引数なしの値server :: Server APIで済んでいた）。
+mkServer :: Store -> Server API
+mkServer store = Health.server :<|> User.server store
 
--- | WAI Applicationへの変換。
---
--- servant-serverのserve関数が、API型とハンドラからWAI Applicationを
--- 生成する。WAI Applicationは標準インターフェースであるため、warp以外の
--- WAI対応サーバーでも動作させられる。
-app :: Application
-app = serve api server
+mkApp :: Store -> Application
+mkApp store = serve api (mkServer store)

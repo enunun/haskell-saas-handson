@@ -73,5 +73,6 @@ cabal build all
 
 - 演習の進め方：`saas-handson/README.md`
 - 解答例：`saas-handson-solution/README.md`
-- 設計パターン・ライブラリの解説：各プロジェクトの`docs/iteration-0.md`
+- 設計パターン・ライブラリの解説：各プロジェクトの`docs/iteration-0.md`,
+  `docs/iteration-1.md`
 - 全体ロードマップ：各プロジェクトの`docs/ROADMAP.md`

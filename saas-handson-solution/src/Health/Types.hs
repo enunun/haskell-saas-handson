@@ -1,4 +1,6 @@
-module Types
+{-# LANGUAGE DeriveGeneric #-}
+
+module Health.Types
   ( HealthResponse (..)
   ) where
 

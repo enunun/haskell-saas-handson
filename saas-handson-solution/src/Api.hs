@@ -1,18 +1,21 @@
+{-# LANGUAGE TypeOperators #-}
+
 module Api
   ( API
   , api
   ) where
 
 import Data.Proxy (Proxy (..))
-import Servant.API
-import Types (HealthResponse)
+import Servant
+import qualified Health.Api as Health
+import qualified User.Api as User
 
 -- | アプリケーション全体のAPI型。
 --
--- Servantでは、ルーティング・HTTPメソッド・入出力の型がすべて
--- 型レベルで表現される。この型自体が仕様書であり、実装（Server.hs）は
--- この型を満たすことをコンパイラによって強制される。
-type API = "health" :> Get '[JSON] HealthResponse
+-- 機能ごと（Health, User, ...）に定義されたAPI型を:<|>で合成する。
+-- 機能が増えるたびにこの1行を足すだけでよく、各機能のルーティング定義
+-- 自体はHealth.Api・User.Apiにカプセル化されたままである。
+type API = Health.API :<|> User.API
 
 api :: Proxy API
 api = Proxy

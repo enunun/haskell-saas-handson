@@ -1,12 +1,16 @@
-module HealthSpec (spec) where
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
 
-import Server (app)
+module Health.HealthSpec (spec) where
+
+import Server (mkApp)
 import Test.Hspec
 import Test.Hspec.Wai
 import Test.Hspec.Wai.JSON (json)
+import User.Server (newStore)
 
 spec :: Spec
-spec = with (pure app) $
+spec = with (mkApp <$> newStore) $
   describe "GET /health" $ do
     it "ステータスコード200を返す" $
       get "/health" `shouldRespondWith` 200
