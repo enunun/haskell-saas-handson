@@ -42,7 +42,7 @@ services:
   #
   # ホスト側（devcontainerの外）から直接叩きたい場合はlocalhost:8081。
   mock-auth:
-    image: ghcr.io/navikt/mock-oauth2-server:2.1.10
+    image: ghcr.io/navikt/mock-oauth2-server:6.0.0
     ports:
       - "8081:8080"
     environment:
@@ -62,7 +62,7 @@ services:
   #
   # ホスト側（devcontainerの外）から直接繋ぎたい場合はlocalhost:5433。
   db:
-    image: postgres:16
+    image: postgres:18
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
