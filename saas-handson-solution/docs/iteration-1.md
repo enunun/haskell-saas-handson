@@ -1,18 +1,144 @@
 # Iteration 1：解説
 
-## 実装する機能
+このドキュメントは`saas-handson/docs/iteration-1.md`の演習問題に対応する
+解答解説である。見出しの番号（1-1〜1-6）は演習側と対応している。
 
-`POST /users`（ユーザー登録）と`GET /users`（一覧取得）を実装する。データは
-DBを使わずin-memory（`IORef`）で保持する。バリデーションや重複チェックは
-行わない（Iteration 5で扱う）。ユーザーは`id`・`name`・`email`のみを持つ。
+## 演習1-1の解説：User/CreateUserRequestの型を読み解く
 
-## リファクタリング：技術層別構成 → 機能別構成（Vertical Slice）
+```haskell
+data User = User
+  { userId    :: Int
+  , userName  :: Text
+  , userEmail :: Text
+  } deriving (Show, Eq)
 
-Iteration 0では`src/Api.hs`・`Server.hs`・`Types.hs`という技術層別の構成
-だったが、これはHealthという1機能しか存在しなかったからこそ成立していた
-（`docs/iteration-0.md`参照）。Iteration 1でUserという2つ目の機能が
-加わるにあたり、まずHealthを`src/Health/{Api,Server,Types}.hs`へ移し、
-Userも同じ形（`src/User/{Api,Server,Types}.hs`）で追加する。
+data CreateUserRequest = CreateUserRequest
+  { crName  :: Text
+  , crEmail :: Text
+  } deriving (Show, Eq)
+
+instance ToJSON User where
+  toJSON (User uid uname uemail) =
+    object ["id" .= uid, "name" .= uname, "email" .= uemail]
+
+instance FromJSON CreateUserRequest where
+  parseJSON = withObject "CreateUserRequest" $ \v ->
+    CreateUserRequest <$> v .: "name" <*> v .: "email"
+```
+
+問い1の答え：Haskellのレコードフィールド名は同一モジュール内で一意で
+ある必要がある。`User`と`CreateUserRequest`が同じモジュール内でともに
+`name`・`email`というフィールド名を使おうとすると衝突する。そこで
+Haskell側のフィールド名は`userName`/`crName`のようにずらし、`withObject`
+・`.:`・`.=`を使ってJSONキーは`id`/`name`/`email`のままにする`ToJSON`/
+`FromJSON`インスタンスを手書きする。
+
+問い2の答え：`deriving (Generic)`による自動導出は、フィールド名がその
+ままJSONキーになる場合にしか使えない。`User`・`CreateUserRequest`は
+問い1の理由でHaskell側のフィールド名をJSONキーからずらしているため、
+自動導出をそのまま使うとJSONキーが`userId`/`userName`のようになって
+しまう。キー名を`id`/`name`/`email`に保つには、`withObject`・`.:`・`.=`
+を使った手書きのインスタンスが必要になる。これがIteration 0の
+`HealthResponse`（フィールド名とJSONキーが一致するため`deriving
+(Generic)`で足りる）との対比になっている。
+
+問い3の答え：`id`というフィールド名を`User`のフィールドとして直接使うと、
+`Prelude`が提供する恒等関数`id :: a -> a`と名前が衝突する。この衝突を
+避けるため`userId`という名前にし、JSONキーとしての`"id"`は`ToJSON`/
+`FromJSON`インスタンスの中で文字列リテラルとして扱う。
+
+## 演習1-2の解説：listUsersHandlerを実装する
+
+### IORefによるハンドラ間state共有
+
+```haskell
+type Store = IORef (Int, [User])
+
+newStore :: IO Store
+newStore = newIORef (1, [])
+```
+
+Iteration 0のHealthはハンドラが固定値を返すのみで状態を持たなかったが、
+Userは登録・一覧という状態を持つ操作を扱う。そのためHealthの頃の
+`server :: Server API`・`app :: Application`（引数なしの値）から、
+`server :: Store -> Server API`・`mkApp :: Store -> Application`
+（Storeを受け取る関数）に変わっている。
+
+### listUsersHandlerの実装
+
+```haskell
+listUsersHandler :: Handler [User]
+listUsersHandler = liftIO (snd <$> readIORef store)
+```
+
+`Store`は`(次に採番するid, 登録済みユーザー一覧)`のタプルであるため、
+一覧を返すには`readIORef`で現在の値を読み出し、`snd`でユーザー一覧の
+部分だけを取り出せばよい。`readIORef`は`IO`アクションであるため、
+`Handler`モナドの中で使うには`liftIO`で持ち上げる。読み取りのみで
+カウンタを変更しないため、Userの2つのハンドラの中では最も単純である。
+
+## 演習1-3の解説：createUserHandlerを実装する
+
+### `ReqBody`：リクエストボディの型レベル表現
+
+```haskell
+type API =
+       "users" :> ReqBody '[JSON] CreateUserRequest :> PostCreated '[JSON] User
+  :<|> "users" :> Get '[JSON] [User]
+```
+
+`ReqBody '[JSON] CreateUserRequest`は、リクエストボディをJSONとして
+パースし`CreateUserRequest`型の値としてハンドラに渡すことを型で表現
+する。パースに失敗した場合のエラー応答（400）はservant-serverが自動的
+に生成する。
+
+### `PostCreated`（201）
+
+Iteration 1の`POST /users`はバリデーションを行わず、成功時は常に201
+（Created）を返す前提のため`PostCreated`を用いる。Servantでは`Get`・
+`PostCreated`・`Delete`などのVerb型がそれぞれ既定のステータスコードを
+持ち、レスポンスの意味をエンドポイント定義自体に埋め込める。
+
+### createUserHandlerの実装
+
+```haskell
+createUserHandler :: CreateUserRequest -> Handler User
+createUserHandler (CreateUserRequest reqName reqEmail) =
+  liftIO $ atomicModifyIORef' store $ \(nextId, users) ->
+    let newUser = User nextId reqName reqEmail
+    in ((nextId + 1, users ++ [newUser]), newUser)
+```
+
+`atomicModifyIORef'`は「現在の値を読み、新しい値を計算し、書き戻す」を
+単一の原子的操作として行う。採番（`nextId`の消費）とユーザー一覧への
+追加を分けて`readIORef`・`writeIORef`で行うと、複数のリクエストが同時
+に来た際に同じidが2回採番されたり、片方の更新が失われたりする競合状態
+が起こりうる。`atomicModifyIORef'`を使うことでこれを防ぐ。
+
+## 演習1-4の解説：テストをすべてGREENにする
+
+### 単体テスト・結合テストの役割分担が意味を持ち始める
+
+`GET /health`は分岐のない固定値レスポンスだったため、単体テストと結合
+テストの内容がほぼ一致していた。Userは「採番」「一覧の蓄積」という状態
+遷移を持つため、この回から役割分担が実質的な意味を持つ。
+
+- 単体テスト（`test/unit/User/UserSpec.hs`）：`runHandler`で`Handler`
+  モナドを直接実行し、採番ロジックや一覧の順序といったドメインロジック
+  をHTTP層なしで高速に検証する。
+- 結合テスト（`test/integration/User/UserSpec.hs`）：`hspec-wai`で実際
+  にJSONボディを送り、ステータスコード・レスポンスのJSON構造まで含めて
+  検証する。
+
+各テストは`with (mkApp <$> newStore)`（結合テスト）・テストごとの
+`newStore`呼び出し（単体テスト）により、テストケースごとに新しい
+`Store`を使う。これによりテスト間で登録済みユーザーの状態が漏れず、
+idの採番結果を`1`のような具体的な値としてアサーションできる。「2件
+作成すると異なるidが採番される」「作成順に全件返す」がGREENになって
+いれば、`atomicModifyIORef'`による採番とリストへの追加が意図どおりに
+動いていることが確認できたことになる。
+
+## 演習1-5の解説：リファクタリング（技術層別構成→機能別構成）
 
 ```
 src/
@@ -28,114 +154,45 @@ src/
   Server.hs     -- mkServer/mkApp（機能ごとのserverを:<|>で合成）
 ```
 
-ルートの`Api.hs`は各機能のAPI型を`:<|>`で合成するだけの薄いcombinatorに
-なり、ルートの`Server.hs`も各機能の`server`値を合成するだけになる。
-機能が増えるたびにこの合成箇所へ1行足すだけでよく、機能固有のルーティング
-定義・ハンドラ実装は各機能のディレクトリ内に閉じる。
-
-テスト（`test/unit`・`test/integration`）も同様に`Health/`・`User/`という
-機能別サブディレクトリへ分割し、`src`と`test`のディレクトリ境界を一致させる。
-
-## 設計パターン
-
 ### `:<|>`によるAPI合成
 
 ```haskell
 type API = Health.API :<|> User.API
 ```
 
+```haskell
+mkServer :: Store -> Server API
+mkServer store = Health.server :<|> User.server store
+```
+
 Servantでは複数のエンドポイント（型）を`:<|>`で連結でき、対応する実装
 （`Server`値）も同じ形で`:<|>`により連結する。型と実装の構造が対応する
-ため、片方だけ変更すればコンパイルエラーになる。
+ため、片方だけ変更すればコンパイルエラーになる。ルートの`Api.hs`は各
+機能のAPI型を`:<|>`で合成するだけの薄いcombinatorになり、ルートの
+`Server.hs`も各機能の`server`値を合成するだけになる。機能が増えるたび
+にこの合成箇所へ1行足すだけでよく、機能固有のルーティング定義・ハンドラ
+実装は各機能のディレクトリ内に閉じる。
 
-### `ReqBody`：リクエストボディの型レベル表現
+テスト（`test/unit`・`test/integration`）も同様に`Health/`・`User/`と
+いう機能別サブディレクトリへ分割し、`src`と`test`のディレクトリ境界を
+一致させる。移動そのものは挙動を変えない操作であるため、移動の前後で
+`cabal test saas-handson`の結果（成功・失敗の内容）が変わらないことで、
+純粋なRefactorステップであったことを確認できる。
 
-```haskell
-type API =
-       "users" :> ReqBody '[JSON] CreateUserRequest :> PostCreated '[JSON] User
-  :<|> "users" :> Get '[JSON] [User]
-```
+## 演習1-6の解説（発展）：疎通確認と設計の一般化、トラブルシューティング
 
-`ReqBody '[JSON] CreateUserRequest`は、リクエストボディをJSONとしてパース
-し`CreateUserRequest`型の値としてハンドラに渡すことを型で表現する。パースに
-失敗した場合のエラー応答（400）はservant-serverが自動的に生成する。
+3つ目の機能を追加する場合、`src/Comment/{Api,Server,Types}.hs`・
+`test/{unit,integration}/Comment/CommentSpec.hs`を新規に作り、ルートの
+`src/Api.hs`の`:<|>`連結に`Comment.API`を1行足し、`src/Server.hs`の
+`:<|>`連結に`Comment.server`を1行足す。`saas-handson.cabal`の
+`exposed-modules`・`other-modules`にも新規ファイルを追加する。既存の
+Health・Userのコードには一切手を入れずに済む点が、機能別構成の恩恵で
+ある。
 
-### `PostCreated`（201） vs `Get`（200）
+### 実装時に必要になるLANGUAGE拡張・依存パッケージ
 
-Iteration 1のPOST /usersはバリデーションを行わず、成功時は常に201
-（Created）を返す前提のため`PostCreated`を用いる。Servantでは`Get`・
-`PostCreated`・`Delete`などのVerb型がそれぞれ既定のステータスコードを
-持ち、レスポンスの意味をエンドポイント定義自体に埋め込める。
-
-### `IORef`によるハンドラ間state共有
-
-```haskell
-type Store = IORef (Int, [User])
-
-server :: Store -> Server API
-server store = createUserHandler :<|> listUsersHandler
-  where
-    createUserHandler req =
-      liftIO $ atomicModifyIORef' store $ \(nextId, users) ->
-        let newUser = User nextId (crName req) (crEmail req)
-        in ((nextId + 1, users ++ [newUser]), newUser)
-```
-
-Iteration 0のHealthはハンドラが固定値を返すのみで状態を持たなかったが、
-Userは登録・一覧という状態を持つ操作を扱う。そのためHealthの頃の
-`server :: Server API`・`app :: Application`（引数なしの値）から、
-`server :: Store -> Server API`・`mkApp :: Store -> Application`
-（Storeを受け取る関数）に変わっている。`atomicModifyIORef'`で採番と
-登録を単一の原子的操作として行うことで、複数リクエストが同時に来ても
-採番id・一覧の破損を防ぐ。
-
-### `CreateUserRequest`の手書き`FromJSON`インスタンス
-
-```haskell
-data User = User
-  { userId :: Int, userName :: Text, userEmail :: Text }
-
-data CreateUserRequest = CreateUserRequest
-  { crName :: Text, crEmail :: Text }
-
-instance FromJSON CreateUserRequest where
-  parseJSON = withObject "CreateUserRequest" $ \v ->
-    CreateUserRequest <$> v .: "name" <*> v .: "email"
-```
-
-`User`と`CreateUserRequest`が同じモジュール内で`name`・`email`という
-同じフィールド名を使おうとすると、Haskellのレコードフィールド名は
-モジュール内で一意である必要があるため衝突する（`id`はさらに
-`Prelude.id`とも衝突する）。そこでHaskell側のフィールド名は
-`userId`/`userName`/`userEmail`・`crName`/`crEmail`とずらし、
-`withObject`・`.:`を使ってJSONキーは`id`/`name`/`email`のまま受け付ける
-`FromJSON`/`ToJSON`インスタンスを手書きする。Iteration 0で使った
-`deriving Generic`による自動導出（フィールド名がそのままJSONキーになる）
-との対比になっている。
-
-## 単体テスト・結合テストの役割分担が意味を持ち始める
-
-`GET /health`は分岐のない固定値レスポンスだったため、単体テストと結合
-テストの内容がほぼ一致していた。Userは「採番」「一覧の蓄積」という状態
-遷移を持つため、この回から役割分担が実質的な意味を持つ。
-
-- 単体テスト（`test/unit/User/UserSpec.hs`）：`runHandler`で`Handler`
-  モナドを直接実行し、採番ロジックや一覧の順序といったドメインロジック
-  をHTTP層なしで高速に検証する
-- 結合テスト（`test/integration/User/UserSpec.hs`）：`hspec-wai`で
-  実際にJSONボディを送り、ステータスコード・レスポンスのJSON構造まで
-  含めて検証する
-
-各テストは`with (mkApp <$> newStore)`（結合テスト）・テストごとの
-`newStore`呼び出し（単体テスト）により、テストケースごとに新しい
-`Store`を使う。これによりテスト間で登録済みユーザーの状態が漏れず、
-`id`の採番結果を`1`のような具体的な値としてアサーションできる。
-
-## 実装時に必要になるLANGUAGE拡張・依存パッケージ
-
-Iteration 0のコードは、実際にビルドすると以下が不足しており、そのままでは
-コンパイルが通らない（本教材のリファクタリングで修正済み）。Iteration 1で
-同種のコードを書く際にも必要になるため、まとめておく。
+演習1-6でフィールドを追加する場合など、Iteration 0・1と同種のコードを
+自分で書く際に必要になる拡張・依存をまとめておく。
 
 | 用途 | 拡張／依存 |
 |---|---|

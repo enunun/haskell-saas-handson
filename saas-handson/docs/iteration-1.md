@@ -1,157 +1,118 @@
-# Iteration 1：解説
+# Iteration 1：演習
 
-## 実装する機能
+## この章で作るもの
 
-`POST /users`（ユーザー登録）と`GET /users`（一覧取得）を実装する。データは
-DBを使わずin-memory（`IORef`）で保持する。バリデーションや重複チェックは
-行わない（Iteration 5で扱う）。ユーザーは`id`・`name`・`email`のみを持つ。
+`POST /users`（ユーザー登録）と`GET /users`（一覧取得）を実装する。データ
+はDBを使わずin-memory（`IORef`）で保持する。バリデーションや重複チェック
+は行わない（Iteration 5で扱う）。ユーザーは`id`・`name`・`email`のみを
+持つ。あわせて、Healthを技術層別構成から機能別構成（Vertical Slice）へ
+移すリファクタリングも行う。
 
-## リファクタリング：技術層別構成 → 機能別構成（Vertical Slice）
+## 進め方
 
-Iteration 0では`src/Api.hs`・`Server.hs`・`Types.hs`という技術層別の構成
-だったが、これはHealthという1機能しか存在しなかったからこそ成立していた
-（`docs/iteration-0.md`参照）。Iteration 1でUserという2つ目の機能が
-加わるにあたり、まずHealthを`src/Health/{Api,Server,Types}.hs`へ移し、
-Userも同じ形（`src/User/{Api,Server,Types}.hs`）で追加する。
+演習は1-1から順に、下位（型の理解）→上位（読み取りハンドラ→書き込み
+ハンドラ→テスト全体の確認）→構造のリファクタリングという順で積み上げる
+構成になっている。詰まった場合は`saas-handson-solution/docs/iteration-1.md`
+の対応する節、または`saas-handson-solution`の同名ファイルを参照する。
+コマンドはリポジトリルート（`cabal.project`のある場所）から実行する。
 
-演習用の本パッケージでは、このリファクタリングを学習者自身が行う
-（手順は`README.md`を参照）。Red-Green-Refactorの「Refactor」を、
-挙動を変えずに構造だけを変える作業として実際に体験することが目的である。
+## 演習1-1：User/CreateUserRequestの型を読み解く
 
-```
-src/
-  Health/
-    Api.hs      -- "health" :> Get '[JSON] HealthResponse
-    Server.hs   -- server :: Server API
-    Types.hs    -- HealthResponse
-  User/
-    Api.hs      -- "users" :> ... :<|> "users" :> ...
-    Server.hs   -- server :: Store -> Server API
-    Types.hs    -- User, CreateUserRequest
-  Api.hs        -- type API = Health.API :<|> User.API
-  Server.hs     -- mkServer/mkApp（機能ごとのserverを:<|>で合成）
-```
+`src/User/Types.hs`はすでに完成しており変更不要である。これを読み、
+以下を自分の言葉で説明できるようにする（コードを書く必要はない）。
 
-ルートの`Api.hs`は各機能のAPI型を`:<|>`で合成するだけの薄いcombinatorに
-なり、ルートの`Server.hs`も各機能の`server`値を合成するだけになる。
-機能が増えるたびにこの合成箇所へ1行足すだけでよく、機能固有のルーティング
-定義・ハンドラ実装は各機能のディレクトリ内に閉じる。
+1. `User`は`userId`/`userName`/`userEmail`、`CreateUserRequest`は
+   `crName`/`crEmail`というフィールド名を使っている。JSON上は`id`・
+   `name`・`email`という素直なキー名なのに、なぜHaskell側のフィールド
+   名をこのようにずらしているのか。
+2. `User`の`ToJSON`/`FromJSON`はIteration 0の`HealthResponse`のように
+   `deriving (Generic)`で自動導出されておらず、手書きされている。この
+   違いはなぜ生じるか。
+3. `userId`ではなく`id`というフィールド名をそのまま使わなかった理由の
+   うち、`Prelude`に関係するものは何か。
 
-テスト（`test/unit`・`test/integration`）も同様に`Health/`・`User/`という
-機能別サブディレクトリへ分割し、`src`と`test`のディレクトリ境界を一致させる。
+## 演習1-2：listUsersHandlerを実装する
 
-## 設計パターン
+`src/User/Server.hs`の`listUsersHandler`を実装する。まだユーザーが
+1件も登録されていない状態で、登録済みユーザーの一覧を返すだけの、最も
+単純な状態操作から着手する。
 
-### `:<|>`によるAPI合成
+- `Store`は`IORef (Int, [User])`である。次に採番するidと登録済み
+  ユーザー一覧のタプルを保持している。
+- `listUsersHandler`はこの`Store`から現在のユーザー一覧を読み出して
+  返すだけでよい。
 
-```haskell
-type API = Health.API :<|> User.API
-```
+`cabal test saas-handson`を実行し、結合テストの「GET /usersは初期状態で
+空配列を返す」がGREENになることを確認する（`createUserHandler`が未実装
+のため、他のテストはまだ失敗したままでよい）。
 
-Servantでは複数のエンドポイント（型）を`:<|>`で連結でき、対応する実装
-（`Server`値）も同じ形で`:<|>`により連結する。型と実装の構造が対応する
-ため、片方だけ変更すればコンパイルエラーになる。
+## 演習1-3：createUserHandlerを実装する
 
-### `ReqBody`：リクエストボディの型レベル表現
+`src/User/Server.hs`の`createUserHandler`を実装する。今度は状態を変更
+する操作であり、演習1-2より1段複雑になる。
 
-```haskell
-type API =
-       "users" :> ReqBody '[JSON] CreateUserRequest :> PostCreated '[JSON] User
-  :<|> "users" :> Get '[JSON] [User]
-```
+- リクエストボディ（`CreateUserRequest`）の`name`・`email`を使って新しい
+  `User`を作る。idは`Store`が保持している「次に採番するid」を使い、
+  使用後はカウンタを1つ進める。
+- 採番とユーザー一覧への追加を、複数のリクエストが同時に来ても矛盾なく
+  行えるようにする必要がある。`Data.IORef`が提供する、読み取りと書き
+  換えを単一の操作として行える関数を調べて使う。
 
-`ReqBody '[JSON] CreateUserRequest`は、リクエストボディをJSONとしてパース
-し`CreateUserRequest`型の値としてハンドラに渡すことを型で表現する。パースに
-失敗した場合のエラー応答（400）はservant-serverが自動的に生成する。
+## 演習1-4：テストをすべてGREENにする
 
-### `PostCreated`（201） vs `Get`（200）
-
-Iteration 1のPOST /usersはバリデーションを行わず、成功時は常に201
-（Created）を返す前提のため`PostCreated`を用いる。Servantでは`Get`・
-`PostCreated`・`Delete`などのVerb型がそれぞれ既定のステータスコードを
-持ち、レスポンスの意味をエンドポイント定義自体に埋め込める。
-
-### `IORef`によるハンドラ間state共有
-
-```haskell
-type Store = IORef (Int, [User])
-
-server :: Store -> Server API
-server store = createUserHandler :<|> listUsersHandler
-  where
-    createUserHandler req =
-      liftIO $ atomicModifyIORef' store $ \(nextId, users) ->
-        let newUser = User nextId (crName req) (crEmail req)
-        in ((nextId + 1, users ++ [newUser]), newUser)
+```sh
+cabal test saas-handson
 ```
 
-Iteration 0のHealthはハンドラが固定値を返すのみで状態を持たなかったが、
-Userは登録・一覧という状態を持つ操作を扱う。そのためHealthの頃の
-`server :: Server API`・`app :: Application`（引数なしの値）から、
-`server :: Store -> Server API`・`mkApp :: Store -> Application`
-（Storeを受け取る関数）に変わっている。`atomicModifyIORef'`で採番と
-登録を単一の原子的操作として行うことで、複数リクエストが同時に来ても
-採番id・一覧の破損を防ぐ。
+を実行し、単体テスト（`test/unit/User/UserSpec.hs`）・結合テスト
+（`test/integration/User/UserSpec.hs`）のUserに関するテストがすべて
+GREENになることを確認する。特に以下を確認する。
 
-### `CreateUserRequest`の手書き`FromJSON`インスタンス
+- 2件連続でユーザーを作成したとき、異なるidが採番されていること。
+- `GET /users`が作成した順番どおりに一覧を返すこと。
 
-```haskell
-data User = User
-  { userId :: Int, userName :: Text, userEmail :: Text }
+## 演習1-5：リファクタリング（技術層別構成→機能別構成）
 
-data CreateUserRequest = CreateUserRequest
-  { crName :: Text, crEmail :: Text }
+Iteration 0では`src/Api.hs`・`src/Server.hs`・`src/Types.hs`という技術
+層別の構成だったが、これはHealthという1機能しか存在しなかったからこそ
+成立していた。Userという2つ目の機能が加わった今、以下の手順でHealthを
+機能別ディレクトリへ移す。挙動を変えずに構造だけを変える、Red-Green-
+Refactorの「Refactor」を体験することが目的である。
 
-instance FromJSON CreateUserRequest where
-  parseJSON = withObject "CreateUserRequest" $ \v ->
-    CreateUserRequest <$> v .: "name" <*> v .: "email"
+1. `src/Api.hs`・`src/Server.hs`・`src/Types.hs`を、それぞれ
+   `src/Health/Api.hs`・`src/Health/Server.hs`・`src/Health/Types.hs`へ
+   移し、モジュール名を`Health.Api`・`Health.Server`・`Health.Types`に
+   変更する。
+2. `test/unit/HealthSpec.hs`・`test/integration/HealthSpec.hs`も同様に
+   `test/unit/Health/HealthSpec.hs`・`test/integration/Health/HealthSpec.hs`
+   へ移動し、モジュール名を`Health.HealthSpec`に変更する。
+3. ルートの`src/Api.hs`・`src/Server.hs`を新規作成し、`Health.Api`・
+   `Health.Server`と`User.Api`・`User.Server`をqualified importして
+   `:<|>`で合成するcombinatorの形に書き換える。
+4. `saas-handson.cabal`の`exposed-modules`・`other-modules`をファイル
+   移動・モジュール名変更に合わせて更新する。
+
+**この移動の前後でHealthのテスト結果が変わらないこと**を`cabal test
+saas-handson`で確認する。行き詰まった場合は`saas-handson-solution`の
+同名ファイル・ディレクトリ構成を参照してよい。
+
+## 演習1-6（発展）：疎通確認と設計の一般化
+
+1. `cabal run saas-handson`でサーバーを起動し、以下で疎通確認する。
+
+```sh
+curl http://localhost:8080/health
+
+curl -X POST http://localhost:8080/users \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"Alice","email":"alice@example.com"}'
+
+curl http://localhost:8080/users
 ```
 
-`User`と`CreateUserRequest`が同じモジュール内で`name`・`email`という
-同じフィールド名を使おうとすると、Haskellのレコードフィールド名は
-モジュール内で一意である必要があるため衝突する（`id`はさらに
-`Prelude.id`とも衝突する）。そこでHaskell側のフィールド名は
-`userId`/`userName`/`userEmail`・`crName`/`crEmail`とずらし、
-`withObject`・`.:`を使ってJSONキーは`id`/`name`/`email`のまま受け付ける
-`FromJSON`/`ToJSON`インスタンスを手書きする。Iteration 0で使った
-`deriving Generic`による自動導出（フィールド名がそのままJSONキーになる）
-との対比になっている。
-
-## 単体テスト・結合テストの役割分担が意味を持ち始める
-
-`GET /health`は分岐のない固定値レスポンスだったため、単体テストと結合
-テストの内容がほぼ一致していた。Userは「採番」「一覧の蓄積」という状態
-遷移を持つため、この回から役割分担が実質的な意味を持つ。
-
-- 単体テスト（`test/unit/User/UserSpec.hs`）：`runHandler`で`Handler`
-  モナドを直接実行し、採番ロジックや一覧の順序といったドメインロジック
-  をHTTP層なしで高速に検証する
-- 結合テスト（`test/integration/User/UserSpec.hs`）：`hspec-wai`で
-  実際にJSONボディを送り、ステータスコード・レスポンスのJSON構造まで
-  含めて検証する
-
-各テストは`with (mkApp <$> newStore)`（結合テスト）・テストごとの
-`newStore`呼び出し（単体テスト）により、テストケースごとに新しい
-`Store`を使う。これによりテスト間で登録済みユーザーの状態が漏れず、
-`id`の採番結果を`1`のような具体的な値としてアサーションできる。
-
-## 実装時に必要になるLANGUAGE拡張・依存パッケージ
-
-Iteration 0のコードは、実際にビルドすると以下が不足しており、そのままでは
-コンパイルが通らない。Iteration 1で同種のコードを書く際にも必要になるため
-まとめておく。`src/User/*`（あらかじめ用意されている雛形）は対応済みだが、
-`src/Server.hs`のHealthハンドラを実装する際やリファクタリング時には
-自分で判断が必要になる。
-
-| 用途 | 拡張／依存 |
-|---|---|
-| `type API = "health" :> Get '[JSON] HealthResponse`のような型レベルの`:>`・`'[JSON]` | `{-# LANGUAGE DataKinds #-}`, `{-# LANGUAGE TypeOperators #-}` |
-| `deriving (Generic)`からの`ToJSON`/`FromJSON`自動導出 | `{-# LANGUAGE DeriveGeneric #-}` |
-| `Text`型のフィールドに文字列リテラルを渡す（例：`HealthResponse "ok"`） | `{-# LANGUAGE OverloadedStrings #-}` |
-| hspec-waiの`[json\|...\|]`クオート | `{-# LANGUAGE QuasiQuotes #-}`、および`.cabal`への`hspec-wai-json`の追加 |
-| `import Servant.API`（`servant`パッケージのモジュール） | `servant`を直接`build-depends`に追加するか、代わりに`servant-server`が再エクスポートする`import Servant`を使う（本教材は後者を採用） |
-| `warp`の`run`（`GHC.Internal.Event.Thread.getSystemTimerManager`実行時エラー） | executableの`.cabal`に`ghc-options: -threaded`を追加し、GHCのthreaded runtimeでリンクする |
-
-`cabal build`・`cabal test`を実行した際に「Could not load module」や
-「Couldn't match type '[Char]' with 'Text'」のようなエラーが出た場合は、
-上記のいずれかが不足している可能性が高い。
+2. 演習1-5で確立した機能別構成（Vertical Slice）に、仮に3つ目の機能
+   （例：`Comment`）を追加するとしたら、どのファイルを新規に作り、どの
+   ファイルに1行だけ変更を加えることになるか、設計を紙またはコメントで
+   書き出してみる。
+3. 余力があれば、`User`に`createdAt`のような新しいフィールドを追加し、
+   Red→Green→Refactorのサイクルを自力で回してみる。

@@ -1,166 +1,79 @@
-# Iteration 0：解説
+# Iteration 0：演習
 
-## 実装する機能
+## この章で作るもの
 
-ヘルスチェックAPI（`GET /health`）を実装する。サーバーが正常に起動し、
-リクエストを処理できる状態にあるかを外部から確認するためのエンドポイント
-である。
+`GET /health`エンドポイントを実装する。サーバーが正常に起動しリクエストを
+処理できる状態にあるかを外部から確認するための、最小のヘルスチェックAPIで
+ある。ドメインロジックを持たないシンプルなエンドポイントであるため、
+Servantプロジェクトの雛形（型レベルAPI・ハンドラ・テスト環境）を確立する
+題材として最初に扱う。
 
-toBのSaaSでは、以下のような場面でヘルスチェックAPIが利用される。
+## 進め方
 
-- ロードバランサが、リクエストを振り分けてよいインスタンスかどうかを
-  判定する
-- KubernetesなどのオーケストレータがliveenessProbe／readinessProbeとして
-  定期的に呼び出し、異常なインスタンスを自動的に切り離す
-- デプロイ後の起動確認や、外形監視サービスによる死活監視
+演習は0-1から順に、下位（型・ライブラリの理解）から上位（実装・テスト・
+拡張）へと積み上げる構成になっている。各演習は前の演習を土台にするため、
+順番を飛ばさないこと。詰まった場合は`saas-handson-solution/docs/iteration-0.md`
+の対応する節を読む。コマンドはリポジトリルート（`cabal.project`のある
+場所）から実行する。
 
-ドメインロジックを持たない最小のエンドポイントであるため、業務要件を
-考える前にプロジェクトの雛形（ビルド構成・ルーティング・テスト環境）を
-確立する題材として、最初のイテレーションに選んでいる。
+## 演習0-1：型を読み解く
 
-## 目的
+`src/Types.hs`と`src/Api.hs`を読み、以下を自分の言葉で説明できるように
+する（コードを書く必要はない）。
 
-`GET /health`を題材に、Servantプロジェクトの最小構成とTDDサイクルを確立する。
+1. `HealthResponse`は`deriving (Generic)`されているのに、
+   `instance ToJSON HealthResponse`・`instance FromJSON HealthResponse`の
+   中身は空である。仮にこの2行を削除するとどうなるか。
+2. `type API = "health" :> Get '[JSON] HealthResponse`という1行だけから、
+   どのHTTPメソッド・パス・レスポンスの内容形式のエンドポイントが定義
+   されているか読み取る。
+3. `api :: Proxy API`の`Proxy`は何のために必要か。`API`という型そのものを
+   値として直接扱えない理由を考える。
 
-## 設計パターン
+## 演習0-2：Redを確認する
 
-### 型レベルAPI設計（Type-Level API）
-
-Servantでは、エンドポイントの仕様を値ではなく型で表現する。`API`型は次の
-ように定義される。
-
-```haskell
-type API = "health" :> Get '[JSON] HealthResponse
+```sh
+cabal test saas-handson
 ```
 
-この型はパス・HTTPメソッド・レスポンスの内容形式・ボディの型をすべて含む。
-実装（`server`）はこの型から導出される型を満たす必要があり、満たさなければ
-コンパイルが通らない。仕様と実装の乖離をコンパイル時に検出できる点が、
-実行時にルーティング定義を検証する多くのWebフレームワークとの違いである。
+を実行し、単体テスト（`test/unit/HealthSpec.hs`）・結合テスト
+（`test/integration/HealthSpec.hs`）が両方失敗する（RED）ことを確認する。
+それぞれの失敗メッセージを読み、`src/Server.hs`のどの行が原因になって
+いるかを特定する。
 
-### 仕様と実装の分離
+## 演習0-3：healthHandlerを実装する（Green）
 
-`Api.hs`（型）と`Server.hs`（実装）を別モジュールに分離している。これは
-インターフェースと実装を分けるという一般的な設計原則をServantの型システム
-上で自然に体現したものである。イテレーションが進み複数のリソースを扱う
-段階になっても、この分離を保つ。
+`src/Server.hs`の`healthHandler`を実装し、`cabal test saas-handson`で
+単体テスト・結合テストの両方をGREENにする。
 
-### 技術層別構成という選択（1機能のみの現段階）
+- `HealthResponse`の`status`フィールドに`"ok"`を設定した値を返す。
+- `healthHandler`の型は`Handler HealthResponse`である。`Handler`モナドの
+  中で純粋な値をそのまま返すために、どの関数を使えばよいか調べる。
 
-`src/Api.hs`・`src/Server.hs`・`src/Types.hs`という分割は、「型定義」
-「ハンドラ実装」「データ型」という技術的な層（レイヤー）ごとの分割である。
-`GET /health`という1エンドポイントしか存在しない現段階では、これは標準的
-かつ適切な選択である。
+## 演習0-4：単体テストと結合テストを比較する
 
-一方でこの分割のまま機能（Health, User, ...）が増えていくと、1つの
-`Api.hs`にすべてのルート定義、1つの`Server.hs`にすべてのハンドラが
-積み重なっていき、どのファイルを見ても機能ごとの境界が見えなくなる。
-かといって、1機能しかない今の段階で先回りして機能別ディレクトリ
-（`src/Health/{Api,Server,Types}.hs`のような構成）に分けても、分割の
-恩恵はまだ出ず、単にディレクトリが1段深くなるだけである（境界の引き方は
-2つ目の機能が来て初めて見えるものであり、それより前に決めるのは早すぎる）。
+`test/unit/HealthSpec.hs`と`test/integration/HealthSpec.hs`を読み比べ、
+以下に答える。
 
-そのため本教材では、Iteration 0はこの技術層別構成のままとし、2つ目の
-機能（User）が加わるIteration 1の冒頭で、技術層別から機能別（Vertical
-Slice）への構成変更を明示的なリファクタリングステップとして行う。詳細は
-`docs/iteration-1.md`を参照。
+1. 単体テストは`runHandler`を、結合テストは`hspec-wai`の`get`を使って
+   いる。それぞれのテストはどの層（ルーティング・JSONエンコード・
+   ネットワーク）を経由し、どの層を経由しないか。
+2. 現時点でこの2つのテストはほぼ同じ内容を検証している。なぜそう
+   言えるか。
+3. 今後ハンドラがバリデーションやドメインロジックの分岐を持つように
+   なったとき、この2つのテストの役割はどのように分かれていくと予想
+   するか（Iteration 1で答え合わせをする）。
 
-### Proxyパターン
+## 演習0-5（発展）：レスポンスを拡張する
 
-```haskell
-api :: Proxy API
-api = Proxy
-```
+`HealthResponse`に新しいフィールド（例：アプリケーションのバージョンを
+表す`version :: Text`）を1つ追加し、`GET /health`のレスポンスに含める。
 
-`API`は型であり値ではないため、実行時に型情報を関数へ渡す手段として
-`Data.Proxy`の`Proxy`を用いる。これは型レベル情報を値レベルへ橋渡しする
-Haskellの定型的な手法であり、Servant以外のライブラリでも頻出する。
+1. まずテストを修正・追加してREDにする。
+2. 型・実装を変更してGREENにする。
+3. 命名や実装を見直し、テストがGREENのままリファクタリングする。
 
-### WAI Applicationによる抽象化
-
-```haskell
-app :: Application
-app = serve api server
-```
-
-`serve`はAPI型とハンドラから`Network.Wai.Application`を生成する。WAIは
-Haskellにおける標準的なWebサーバーインターフェースであり、`app`自体は
-特定のサーバー実装（warp）に依存しない。サーバーの起動処理（`Main.hs`）と
-アプリケーションロジック（`Server.hs`）が分離されることで、テスト時に
-サーバーを起動せずアプリケーションを直接検証できる。
-
-## 使用ライブラリ
-
-| ライブラリ | 役割 |
-|---|---|
-| servant-server | 型レベルAPI定義からWAI Applicationを生成する |
-| warp | WAI Applicationを実行するHTTPサーバー |
-| aeson | JSONのエンコード・デコード |
-| hspec | テストフレームワーク本体 |
-| hspec-wai | WAI Applicationに対しHTTPリクエストを直接発行してテストする |
-
-### aesonとGHC.Genericsの組み合わせ
-
-```haskell
-newtype HealthResponse = HealthResponse { status :: Text }
-  deriving (Show, Eq, Generic)
-
-instance ToJSON HealthResponse
-instance FromJSON HealthResponse
-```
-
-`deriving Generic`によりレコードの構造がコンパイラに認識され、`aeson`は
-そこからJSONへの変換規則を自動導出する。フィールド名がそのままJSONキーと
-なるため、手動でのエンコーダ実装が不要になる。この方式はaesonにおける
-標準的な定型パターンである。
-
-### hspec-wai：Applicationを直接テストする
-
-```haskell
-spec = with (pure app) $
-  describe "GET /health" $ do
-    it "ステータスコード200を返す" $
-      get "/health" `shouldRespondWith` 200
-```
-
-hspec-waiは実際にHTTPサーバーを起動することなく、WAI Application相手に
-リクエストを発行して結果を検証する。ネットワークやポートに依存しないため
-テストが高速かつ決定的になる。
-
-## TDDサイクル
-
-1. `test/unit/HealthSpec.hs`と`test/integration/HealthSpec.hs`を先に用意し、
-   `cabal test`を実行してどちらもREDであることを確認する。
-2. `src/Server.hs`のハンドラを実装し、両方GREENにする。
-3. 型シグネチャや命名を見直し、テストがGREENのままリファクタリングする。
-
-このサイクルをイテレーション単位で繰り返すことが本教材の基本方針である。
-
-## テスト戦略：単体テストと結合テストの区別
-
-本教材では`test/unit`と`test/integration`をcabalの別々のtest-suiteとして
-分離している。
-
-| 種別 | ディレクトリ | 検証対象 | 経由する層 |
-|---|---|---|---|
-| 単体テスト | `test/unit` | ハンドラの戻り値そのもの | なし（`runHandler`でHandlerモナドを直接実行） |
-| 結合テスト | `test/integration` | HTTPリクエストに対する応答全体 | ルーティング・JSONエンコード・WAI Application |
-
-単体テストは`servant-server`の`runHandler`を使い、`Handler`モナドの計算
-結果をHTTP層を経由せず直接取り出す。結合テストは`hspec-wai`を使い、
-`serve`が生成したWAI Application相手に実際のHTTPリクエストに近い形で
-検証する。
-
-`GET /health`はレスポンスが固定値であり分岐を持たないため、現時点では
-両者の内容がほぼ一致しており、区別する意味が薄く見える。それでも最初の
-イテレーションからディレクトリとtest-suiteを分けておくのは、Iteration 1
-以降でハンドラがバリデーションやドメインロジックを持ち始めた際に、
-
-- 単体テスト：ロジックの分岐やエッジケースを、Web層を起動せず高速に
-  大量に検証する
-- 結合テスト：ルーティング定義やJSONのフィールド名といった、実際に
-  HTTP越しでなければ検出できない不整合を検証する
-
-という役割分担を自然に維持するためである。テストの追加先に迷わないよう、
-ディレクトリ構成を先に決めておく。
-
+演習0-2〜0-3で経験したRed→Green→Refactorのサイクルを、今度は指示に
+頼らず自力で再現することが目標である。仕上げに`cabal run saas-handson`
+でサーバーを起動し、`curl http://localhost:8080/health`で実際のレスポンス
+を確認する。
