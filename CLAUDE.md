@@ -137,3 +137,11 @@ rtk init --global       # Add RTK to ~/.claude/CLAUDE.md
 
 Overall average: **60-90% token reduction** on common development operations.
 <!-- /rtk-instructions -->
+
+## Artifact Quality Assurance (sanitize-artifacts)
+
+After creating or updating any user-facing artifact, always review it against the `sanitize-artifacts` skill.
+
+- This applies to more than Markdown documents. Source code comments, docstrings, READMEs, and any other content a person will ultimately read are all in scope.
+- Check whether traces of the conversation (given instructions, revision history, rejected approaches, mentions of constraints, etc.) have leaked into the artifact as-is, and rewrite them into natural prose where needed.
+- Reflect constraints in the artifact's design (structure, tone, concrete steps) rather than leaving them as notes like "per the instruction..." or "X is not used...".

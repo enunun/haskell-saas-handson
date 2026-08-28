@@ -23,7 +23,7 @@ cabal.project.local~
 .ghc.environment.*
 
 .devcontainer/claude-home/
-.claude
+.claude/settings.local.json
 
 .devcontainer/rtk-home/.local/share/
 
