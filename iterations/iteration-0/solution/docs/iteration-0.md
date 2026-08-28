@@ -28,12 +28,23 @@ api :: Proxy API
 api = Proxy
 ```
 
-`API`は型であり値ではないため、実行時に型情報を関数（`serve`）へ渡す
-手段がない。そこで`Data.Proxy`の`Proxy`を使う。`Proxy a`は`a`という型
-パラメータだけを持ち、実行時には何のデータも保持しないダミー値である。
-これにより「`API`という型の情報」を値として関数に渡せるようになる。
-型レベル情報を値レベルへ橋渡しするHaskellの定型的な手法であり、Servant
-以外のライブラリでも頻出する。
+`serve`は`HasServer api context => Proxy api -> Server api -> Application`
+という型を持つ。`api`は型変数であり、`serve`がどの`HasServer`インス
+タンスを使うかは、この`api`が何の型に決まるかで決まる。
+
+Haskellの型変数は、関数に渡した引数の型と関数の型シグネチャを照合する
+こと（unification）でしか決まらない。`API`という型そのものを引数として
+直接渡す構文はないため、`api`を`API`に決めさせるには「型が`Proxy API`
+である値」を渡す必要がある。`Proxy a`はコンストラクタが1つ
+（`Proxy`）・フィールドが0個の型であり、実行時のデータを何も運ばない。
+`api :: Proxy API`という値を`serve`に渡すと、引数の型`Proxy api`と
+実際の値の型`Proxy API`が照合され、`api`が`API`に決まる。つまり
+`Proxy`は、データを一切運ばずに型変数だけを確定させるための値である。
+
+（`TypeApplications`という言語拡張を使えば`serve @API server`のように
+型を直接指定でき、`Proxy`値を渡さずに同じことができる。`Proxy`は
+その拡張が広まる前から使われてきた、値の型を介して型変数を確定させる
+定型的な手法であり、Servant以外のライブラリでも頻出する。）
 
 ### aesonとGHC.Genericsの組み合わせ
 
@@ -62,11 +73,15 @@ instance FromJSON HealthResponse
 `Content-Type: application/json`で`HealthResponse`をエンコードしたボディ
 を返す、というエンドポイントが定義されている。
 
-演習0-1の問い3の答え：`API`は型でしかなく、Haskellの値の世界には存在
-しない。`serve`のような関数に「どの型に対応するAPIを組み立てるか」を
-伝えるには、その型を値として持ち回れる何かが必要になる。`Proxy`は中身を
-持たない値でありながら型パラメータだけは保持するため、この橋渡し役を
-果たす。
+演習0-1の問い3の答え：`serve`は`HasServer api context => Proxy api ->
+Server api -> Application`という型を持ち、`api`は型変数である。関数の
+型変数は、渡した引数の型と関数の型シグネチャを照合すること
+（unification）でしか決まらない。`API`という型そのものを直接渡す手段は
+ないため、`api`を`API`に決めさせるには「型が`Proxy API`であるような
+値」を渡す必要がある。`Proxy`はコンストラクタが1つ・フィールドが0個の
+型であり、実行時のデータを何も運ばない代わりに、型パラメータだけを
+運ぶ。`api = Proxy :: Proxy API`という値を渡すことで、データなしに
+`api ~ API`という型の等式だけを`serve`に伝えている。
 
 ## 演習0-2の解説：テストを自分で書く
 

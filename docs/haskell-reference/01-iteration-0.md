@@ -26,12 +26,24 @@ api :: Proxy API
 api = Proxy
 ```
 
-`API`という型そのものを関数の引数として直接渡すことはできない
-（Haskellでは型と値は別の世界に住んでいる）。`Proxy API`は「中身を
-持たない、`API`という型の情報だけを運ぶための値」であり、
-「この型に対して処理してほしい」とライブラリ関数に伝えるための
-定型的な小道具である。`Proxy`自体の値は常に`Proxy`の1通りしかない
-（中身がないため）。
+`serve`は`HasServer api context => Proxy api -> Server api -> Application`
+という型を持つ（`Servant.Server`）。`api`は型変数であり、実際に使われる
+`HasServer`インスタンスは、この`api`が呼び出し時にどの型に決まるかで
+決まる。
+
+Haskellの型変数は、関数に渡した引数の型と関数の型シグネチャを照合する
+こと（unification）で決まる。`API`という型そのものを引数として直接
+渡す構文はないため、`api`を`API`に決めさせるには「型が`Proxy API`
+である値」を渡す必要がある。`Proxy a`はコンストラクタが1つ
+（`Proxy`）・フィールドが0個の型であり、実行時のデータを何も運ばない。
+`api :: Proxy API`という値を`serve`に渡すと、引数の型`Proxy api`と
+実際の値の型`Proxy API`が照合され、`api`が`API`に決まる。つまり
+`Proxy`は、データを一切運ばずに型変数だけを確定させるための値である。
+
+（`TypeApplications`拡張を使えば`serve @API server`のように型を直接
+指定でき、`Proxy`値を渡さずに同じことができる。`Proxy`はその拡張が
+広まる前から使われてきた、値の型を介して型変数を確定させる定型的な
+手法である。）
 
 ## `Handler`モナド
 
