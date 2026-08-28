@@ -125,31 +125,24 @@ data User = User { ... } deriving (Show, Eq)
 
 ## モナドとは何か（概念）
 
-Haskellの関数は基本的に「同じ入力には同じ出力を返す」（副作用を持たない）
-ことが期待されている。しかし実際のプログラムは「ファイルを読む」
-「DBに書き込む」「失敗するかもしれない」「複数の値を返しうる」といった
-「素直な関数」では表せない計算を必要とする。**モナドとは、こうした
-「何か特別な文脈を持つ計算」を表す型の総称であり、その文脈を保ったまま
-計算をつなげるための共通の作法（インターフェース）**である。
+Haskellの関数は同じ入力に対して常に同じ値を返し、副作用を持たない。
+一方で実際のプログラムには、ファイルの読み書き・失敗しうる計算・
+複数の結果を返す計算など、値をそのまま返すだけでは表現できない処理が
+ある。Haskellではこれらを、結果の型`a`を`IO a`・`Maybe a`・
+`Either e a`のように別の型で包んで表現する。
 
-具体例で考えるとイメージしやすい。
+- `IO a`：実行すると副作用を起こしながら`a`型の値を生成する手続きを
+  表す型。`IO Int`という型の値そのものは`Int`ではなく、実行して初めて
+  `Int`が得られる。
+- `Maybe a`：`a`型の値が得られる場合（`Just a`）と得られない場合
+  （`Nothing`）の両方を表す型。
+- `Either e a`：`a`型の値が得られる場合（`Right a`）と、`e`型の値で
+  失敗する場合（`Left e`）の両方を表す型。
 
-- `IO a`：「実行すると副作用を起こしつつ`a`型の値を作り出す手順」を
-  表す。`IO Int`は「実行すると`Int`が得られる手順」であり、`Int`その
-  ものではない（副作用のある計算と、その結果の値は別物として区別
-  されている）。
-- `Maybe a`：「`a`が得られるかもしれないし、得られないかもしれない
-  （`Nothing`）」という文脈を表す。
-- `Either e a`：「`a`が得られるか、`e`型のエラーで失敗するか」という
-  文脈を表す。
-
-これらは一見バラバラだが、共通して「文脈を持つ値を作る」
-「その中身に関数を適用したい」「複数の“文脈付きの計算”を順番につなげ
-たい」という操作が必要になる。この共通の操作の集まりをHaskellでは
-`Monad`という型クラスとして抽象化している。他の言語で言えば、
-Promiseの`.then`チェーンやOptional/Result型のメソッドチェーンが近い
-（「値を直接扱わず、文脈でラップされたまま次の処理につなげる」という
-発想は同じである）。
+`IO`・`Maybe`・`Either`はいずれも、`a`型の値を`m a`型に変換する操作
+（`pure`/`return`）と、`m a`型の値と`a -> m b`型の関数から`m b`型の
+値を作る操作（`>>=`）を持つ。この2つの操作を備えた型をHaskellでは
+`Monad`という型クラスとして定義している。
 
 ## モナドをどう使うか（実践）
 
@@ -163,20 +156,20 @@ main = do
   putStrLn ("こんにちは、" <> name)
 ```
 
-`do`ブロックは「モナドの文脈の中で、上から順に計算を実行していく」
-ことを表す。`name <- getLine`は「`IO String`を実行し、得られた
-`String`を`name`という名前に束縛する」という意味である（普通の`=`では
-なく`<-`を使う点に注意。`IO String`という“文脈付きの値”そのものではなく
-、その中身を取り出して名前を付けている）。
+`do`ブロックは、モナドの値を上から順に実行していく構文である。
+`name <- getLine`は、`IO String`型の計算を実行し、得られた`String`を
+`name`という名前に束縛する（`=`ではなく`<-`を使う点に注意する。
+`getLine`の型は`IO String`であり、`name`に束縛されるのはそれを実行した
+結果の`String`である）。
 
 `do`記法は次の2つの操作の組み合わせに展開される（`do`記法は単なる
 糖衣構文であり、本質はこの2つである）。
 
-- `pure` / `return`：「文脈を持たないただの値」を、モナドの文脈に
-  包む。`pure "ok" :: IO String`は「何もせずに`"ok"`という文字列を
-  返すだけのIOアクション」を作る。
-- `>>=`（bind、「バインド」と読む）：「文脈付きの計算」と「その中身を
-  受け取って次の文脈付きの計算を返す関数」をつなげる。
+- `pure` / `return`：`a`型の値を`m a`型（モナドの値）に変換する。
+  `pure "ok" :: IO String`は、副作用を起こさず`"ok"`という文字列を
+  返すだけの`IO String`の値になる。
+- `>>=`（bind、「バインド」と読む）：`m a`型の値と、`a -> m b`型の
+  関数を受け取り、`m b`型の値を返す。
 
 ```haskell
 main :: IO ()
@@ -185,19 +178,19 @@ main = getLine >>= \name -> putStrLn ("こんにちは、" <> name)
 
 上の2つの`main`は同じ意味である。`do`記法は`>>=`の連鎖を読みやすく
 書くための構文にすぎない。このハンズオンでは`IO`のほかに、Servantの
-`Handler`（`Handler a`は「HTTPハンドラとして実行する、`a`型の値を返す
-かエラーを返す計算」を表す、実体は`ExceptT ServerError IO a`という
-モナド。詳しくは[Iteration 2の節](03-iteration-2.md)を参照）というモナドが頻出する。
+`Handler`というモナドが頻出する。`Handler a`の実体は
+`ExceptT ServerError IO a`で、`a`型の値を返すか`ServerError`型の値で
+失敗するHTTPハンドラの計算を表す（詳しくは[Iteration 2の節](03-iteration-2.md)を参照）。
 
 ```haskell
 healthHandler :: Handler HealthResponse
 healthHandler = pure (HealthResponse "ok")
 ```
 
-このように「モナドの中で値をそのまま返す」ときは`pure`を使う。
-`Handler`の中で`IO`のアクション（`readIORef`など）を実行したい場合は
-`liftIO`（`IO a -> Handler a`）で持ち上げる必要がある（`Handler`は
-`IO`を内部に含む、より大きな文脈だからである）。
+このように、モナドの値をそのまま返すときは`pure`を使う。`Handler`の中で
+`IO`のアクション（`readIORef`など）を実行したい場合は`liftIO`
+（`IO a -> Handler a`）で変換する必要がある（`Handler`の実体である
+`ExceptT ServerError IO a`は内部に`IO`を含む型だからである）。
 
 ```haskell
 listUsersHandler :: Handler [User]
@@ -206,26 +199,26 @@ listUsersHandler = liftIO (readIORef store)
 
 ## Functor・Applicative：`<$>`・`<*>`・`fmap`
 
-モナドほど強力ではないが、よく似た「文脈付きの値を扱う」操作として
-`Functor`・`Applicative`という型クラスがある。
+モナドより持つ操作が少ないが、`f a`型の値を扱う型クラスとして
+`Functor`・`Applicative`がある。
 
 ```haskell
 fmap :: (a -> b) -> f a -> f b
 (<$>) :: (a -> b) -> f a -> f b   -- fmapの中置演算子版（同じもの）
 ```
 
-`<$>`（`fmap`）は「文脈の中身に、ただの関数を適用する」操作である。
-`show <$> Just 5`は`Just "5"`になる（`Maybe`の中の`5`にだけ`show`を
-適用し、`Just`という文脈はそのまま保たれる）。
+`<$>`（`fmap`）は、`f a`型の値の中身に関数を適用し、同じ`f`に包んだ
+結果を返す操作である。`show <$> Just 5`は`Just "5"`になる（`Just`に
+包まれた`5`に`show`を適用し、結果を`Just`のまま返す）。
 
 ```haskell
 (<*>) :: f (a -> b) -> f a -> f b
 ```
 
-`<*>`は「文脈に包まれた関数」を「文脈に包まれた値」に適用する操作で、
-複数の“文脈付きの値”を1つの関数にまとめて渡すときに使う。このハンズオン
-では、複数のJSONフィールドをパースして1つの値にまとめる場面で非常に
-よく登場する。
+`<*>`は、`f (a -> b)`型の値（関数を包んだ値）を`f a`型の値に適用し、
+`f b`型の値を返す操作である。複数の`f`型の値を1つの関数にまとめて
+渡したいときに使う。このハンズオンでは、複数のJSONフィールドをパース
+して1つの値にまとめる場面でよく使う。
 
 ```haskell
 instance FromJSON CreateUserRequest where
@@ -233,14 +226,15 @@ instance FromJSON CreateUserRequest where
     CreateUserRequest <$> v .: "name" <*> v .: "email"
 ```
 
-`v .: "name"`・`v .: "email"`はそれぞれ「パースに失敗するかもしれない
-文脈」に包まれた`Text`を表す（`Parser Text`）。
-`CreateUserRequest <$> v .: "name"`で「`name`のパースに成功したら、
-`CreateUserRequest`コンストラクタ（`Text -> Text ->
-CreateUserRequest`）にその値を適用する」という“文脈付きの部分適用”を
-行い、続く`<*> v .: "email"`でもう1つの引数を同様に適用している。
-「複数のフィールドをそれぞれパースし、すべて成功したら1つの値に
-まとめる」という処理を、`if`による分岐や中間変数なしに1行で書ける。
+`v .: "name"`・`v .: "email"`はそれぞれ`Parser Text`型の値である
+（パースに失敗する可能性がある`Text`を表す）。
+`CreateUserRequest <$> v .: "name"`は、`name`のパースに成功した場合に
+`CreateUserRequest`コンストラクタ（`Text -> Text -> CreateUserRequest`）
+へその値を適用した`Parser (Text -> CreateUserRequest)`を作る。続く
+`<*> v .: "email"`でこの関数に`email`のパース結果を適用し、
+`Parser CreateUserRequest`を得る。複数のフィールドをそれぞれパースし、
+すべて成功した場合だけ1つの値にまとめる処理を、`if`による分岐や中間
+変数なしに1行で書ける。
 
 ---
 
