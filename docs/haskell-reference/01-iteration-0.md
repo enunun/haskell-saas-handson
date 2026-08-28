@@ -53,6 +53,30 @@ Haskellの型変数は、関数に渡した引数の型と関数の型シグネ�
 `ServerError`を投げて失敗することもできる、`a`型の値を返す計算」を
 表す。
 
+## 言語拡張（`{-# LANGUAGE ... #-}`）
+
+Iteration 0のコードでは次の4つを使っている。
+
+- `DataKinds`：`'[JSON]`のように型のリストを書けるようにする（`API`型
+  の`'[JSON]`を参照）。これがないと`'[JSON]`という記法自体が構文
+  エラーになる。
+- `TypeOperators`：`:>`のような記号の名前を、中置の型演算子として型
+  シグネチャの中で使えるようにする。`type API = "health" :> Get
+  '[JSON] HealthResponse`の`:>`はこの拡張がないと型として解釈できない。
+- `DeriveGeneric`：`deriving (Generic)`を使えるようにする。`Generic`は
+  標準の`deriving`対象ではないため、この拡張なしに`HealthResponse`へ
+  `deriving (Generic)`を付けるとコンパイルエラーになる。
+- `OverloadedStrings`：文字列リテラル（`"ok"`）を、文脈に応じて`Text`
+  など`String`以外の型としても扱えるようにする。`src/Server.hs`の
+  `pure (HealthResponse "ok")`では`status`フィールドが`Text`型なので、
+  この拡張がないと`"ok"`は`String`型に決まってしまいコンパイルが通ら
+  ない。
+
+`test/integration/HealthSpec.hs`（解答例）ではさらに`QuasiQuotes`も
+使っている。`[json|{status:"ok"}|]`という`[quoter名| ... |]`の構文
+自体が`QuasiQuotes`を有効にしないと解釈されず、構文エラーになる
+（`json`はhspec-wai-jsonが提供するquasi quoter）。
+
 ## `.cabal`ファイルの読み方
 
 `.cabal`ファイルはHaskellのパッケージ（ビルドの単位）を定義する
