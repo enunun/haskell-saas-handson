@@ -16,6 +16,7 @@ Haskellのレコードフィールド名は、同じモジュール内で一意�
 ## 手書きの`ToJSON`／`FromJSON`
 
 ```haskell
+-- src/User/Types.hs
 instance FromJSON CreateUserRequest where
   parseJSON = withObject "CreateUserRequest" $ \v ->
     CreateUserRequest <$> v .: "name" <*> v .: "email"
@@ -31,6 +32,8 @@ instance FromJSON CreateUserRequest where
 ように使う）。
 
 ## `IORef`と`atomicModifyIORef'`
+
+baseライブラリの`Data.IORef`は次の関数群を提供している。
 
 ```haskell
 newIORef      :: a -> IO (IORef a)
@@ -55,6 +58,7 @@ Haskellの命名慣習で、遅延評価によるメモリリークを避ける�
 ## `ReqBody`・`PostCreated`（Verb型）
 
 ```haskell
+-- src/User/Api.hs
 type API = "users" :> ReqBody '[JSON] CreateUserRequest :> PostCreated '[JSON] User
 ```
 
@@ -67,6 +71,9 @@ type API = "users" :> ReqBody '[JSON] CreateUserRequest :> PostCreated '[JSON] U
 型として用意している。
 
 ## `:<|>`によるAPI・ハンドラの合成
+
+`EndpointA`・`EndpointB`を具体的な型の代わりに使った、一般的な例で
+考える。
 
 ```haskell
 type API = EndpointA :<|> EndpointB
@@ -84,6 +91,7 @@ server = handlerA :<|> handlerB
 ## qualified import
 
 ```haskell
+-- src/User/Store.hs
 import qualified Data.Map.Strict as Map
 import qualified Data.Text as Text
 ```

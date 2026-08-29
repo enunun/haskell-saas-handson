@@ -5,6 +5,7 @@
 ## Servantの型レベルAPI定義
 
 ```haskell
+-- src/Api.hs
 type API = "health" :> Get '[JSON] HealthResponse
 ```
 
@@ -22,6 +23,7 @@ Servantは「APIの仕様（パス・HTTPメソッド・入出力の形）」を
 ## `Proxy`
 
 ```haskell
+-- src/Api.hs
 api :: Proxy API
 api = Proxy
 ```
@@ -99,6 +101,9 @@ Iteration 0のコードでは次の4つを使っている。
 への追記忘れが原因である。
 
 ## hspec・hspec-waiの基本
+
+hspecの基本構文を、単純化した例で示す（実際の`test/unit/HealthSpec.hs`
+は`healthHandler`ではなく`mkServer`を`runHandler`に渡す）。
 
 ```haskell
 spec :: Spec

@@ -1,0 +1,85 @@
+cabal-version:      2.4
+name:               saas-handson-iteration2
+version:            0.1.0.0
+synopsis:           HaskellとServantで作るtoB SaaSハンズオン教材（Iteration 2・演習用）
+build-type:         Simple
+
+library
+    hs-source-dirs:   src
+    exposed-modules:  Api
+                    , Server
+                    , Auth.Server
+                    , Auth.Types
+                    , Health.Api
+                    , Health.Server
+                    , Health.Types
+                    , User.Api
+                    , User.Server
+                    , User.Store
+                    , User.Types
+    build-depends:    base >=4.14 && <5
+                    , servant
+                    , servant-server
+                    , warp
+                    , aeson
+                    , text
+                    , bytestring
+                    , wai
+                    , jose
+                    , lens
+                    , mtl
+                    , http-conduit
+                    , containers
+    default-language: Haskell2010
+
+executable saas-handson-iteration2
+    hs-source-dirs:   app
+    main-is:          Main.hs
+    ghc-options:      -threaded
+    build-depends:    base >=4.14 && <5
+                    , saas-handson-iteration2
+                    , warp
+    default-language: Haskell2010
+
+-- 単体テスト：ハンドラの戻り値を直接検証する（実DB・外部サービスに
+-- 一切依存しない）。
+test-suite unit
+    type:               exitcode-stdio-1.0
+    hs-source-dirs:     test/unit
+    main-is:            Spec.hs
+    other-modules:      HealthSpec
+                      , User.UserSpec
+    build-depends:      base >=4.14 && <5
+                      , saas-handson-iteration2
+                      , hspec
+                      , servant-server
+                      , aeson
+                      , text
+    build-tool-depends: hspec-discover:hspec-discover
+    default-language:   Haskell2010
+
+-- 結合テスト：WAI Application相手にHTTPリクエストを発行して検証する。
+-- JWTの検証はテスト専用の鍵ペアで行い、外部の認証サーバー（mock-auth）
+-- には一切依存しない。
+test-suite integration
+    type:               exitcode-stdio-1.0
+    hs-source-dirs:     test/integration
+    main-is:            Spec.hs
+    other-modules:      HealthSpec
+                      , User.UserSpec
+    build-depends:      base >=4.14 && <5
+                      , saas-handson-iteration2
+                      , hspec
+                      , hspec-wai
+                      , hspec-wai-json
+                      , servant-server
+                      , wai
+                      , aeson
+                      , bytestring
+                      , jose
+                      , lens
+                      , text
+                      , time
+                      , http-types
+    build-tool-depends: hspec-discover:hspec-discover
+    default-language:   Haskell2010

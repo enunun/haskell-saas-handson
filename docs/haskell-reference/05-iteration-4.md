@@ -4,6 +4,9 @@
 
 ## Handleパターン（DI）とレコード・オブ・関数
 
+`src/User/Repository.hs`は次のように定義されている（`getUser`フィールド
+は省略する）。
+
 ```haskell
 data UserRepository = UserRepository
   { createUser :: TenantId -> Text -> Text -> IO User
@@ -25,6 +28,9 @@ data UserRepository = UserRepository
 
 ## クロージャで内部状態を隠す
 
+`src/User/Repository/InMemory.hs`の要点を、変数名を`store`に簡略化して
+示す。
+
 ```haskell
 newInMemoryUserRepository :: IO UserRepository
 newInMemoryUserRepository = do
@@ -43,22 +49,32 @@ newInMemoryUserRepository = do
 指向で言う「カプセル化されたオブジェクト」に近いものを、クラスを使わず
 に作れる。
 
-## `MVar`
+## `resource-pool`：`Pool`・`withResource`
+
+resource-poolライブラリ（`Data.Pool`）は次の関数群を提供している。
 
 ```haskell
-newMVar   :: a -> IO (MVar a)
-withMVar  :: MVar a -> (a -> IO b) -> IO b
+newPool       :: PoolConfig a -> IO (Pool a)
+defaultPoolConfig :: IO a -> (a -> IO ()) -> Double -> Int -> PoolConfig a
+withResource  :: Pool a -> (a -> IO b) -> IO b
 ```
 
-`MVar a`は「中身が空か、`a`型の値が1つ入っているかのどちらかの箱」で
-あり、Haskellにおける相互排他ロック（mutex）の基本的な道具である。
-`withMVar`は「箱から値を取り出し、渡した関数に使わせ、（例外が起きても）
-必ず値を箱へ返す」という一連の操作を安全に行う。複数のスレッドが
-同時に`withMVar`しようとすると、先に取り出した側が値を返すまで、
-後から来た側は待たされる（＝同時に2つのスレッドが中身を触ることは
-ない）。この教材ではDBコネクションプールの排他制御に使っている。
+`postgresql-simple`の`Connection`は、1つのコネクションを複数の
+リクエスト（スレッド）が同時に使い回すことを想定していない。
+`resource-pool`の`Pool a`は「あらかじめ複数の`a`型の資源（ここでは
+`Connection`）を用意しておき、必要なときに1つ借りて、使い終わったら
+返す」という仕組みを提供する。`defaultPoolConfig`には資源の作り方
+（`connectPostgreSQL connStr`）・後始末の仕方（`close`）・資源を
+アイドル状態でどれだけ保持するか（秒数）・保持する最大数を渡す。
+`withResource pool action`は「プールから1つ借りて`action`に渡し、
+（`action`が例外を投げても）必ずプールへ返す」という一連の操作を
+安全に行う。プールに空きがあれば、複数のリクエストスレッドは互いに
+待たされることなく並行してDBにアクセスできる。
 
 ## `postgresql-simple`：`Query`・`FromRow`・`ToRow`・`Only`
+
+`query`はpostgresql-simpleライブラリが提供する関数で、`src/User/Repository/Postgres.hs`
+はこれと組み合わせて`instance FromRow User`を次のように定義している。
 
 ```haskell
 query :: (ToRow q, FromRow r) => Connection -> Query -> q -> IO [r]

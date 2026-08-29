@@ -4,6 +4,8 @@
 
 ## 型クラスによる変換の多重ディスパッチ
 
+fast-loggerライブラリは`ToLogStr`を次のように定義している。
+
 ```haskell
 class ToLogStr msg where
   toLogStr :: msg -> LogStr

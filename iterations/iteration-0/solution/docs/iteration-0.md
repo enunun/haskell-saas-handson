@@ -11,6 +11,7 @@ Servantでは、エンドポイントの仕様を値ではなく型で表現す�
 次のように定義される。
 
 ```haskell
+-- src/Api.hs
 type API = "health" :> Get '[JSON] HealthResponse
 ```
 
@@ -24,6 +25,7 @@ type API = "health" :> Get '[JSON] HealthResponse
 ### Proxyパターン
 
 ```haskell
+-- src/Api.hs
 api :: Proxy API
 api = Proxy
 ```
@@ -49,6 +51,7 @@ Haskellの型変数は、関数に渡した引数の型と関数の型シグネ�
 ### aesonとGHC.Genericsの組み合わせ
 
 ```haskell
+-- src/Types.hs
 newtype HealthResponse = HealthResponse { status :: Text }
   deriving (Show, Eq, Generic)
 
@@ -88,6 +91,7 @@ Server api -> Application`という型を持ち、`api`は型変数である。�
 ### hspec-wai：Applicationを直接テストする
 
 ```haskell
+-- test/integration/HealthSpec.hs
 spec = with (pure mkApp) $
   describe "GET /health" $ do
     it "ステータスコード200を返す" $
@@ -102,6 +106,7 @@ hspec-waiは実際にHTTPサーバーを起動することなく、WAI Applicati
 ### hspec-wai-json：JSONレスポンスの検証
 
 ```haskell
+-- test/integration/HealthSpec.hs
 get "/health" `shouldRespondWith` [json|{status:"ok"}|]
 ```
 
@@ -112,6 +117,7 @@ get "/health" `shouldRespondWith` [json|{status:"ok"}|]
 ### 単体テストの書き方
 
 ```haskell
+-- test/unit/HealthSpec.hs
 spec = describe "healthHandler（単体）" $
   it "statusフィールドにokを返す" $ do
     result <- runHandler mkServer
@@ -136,6 +142,7 @@ spec = describe "healthHandler（単体）" $
 ## 演習0-3の解説：healthHandlerを実装する
 
 ```haskell
+-- src/Server.hs
 healthHandler :: Handler HealthResponse
 healthHandler = pure (HealthResponse "ok")
 ```
@@ -154,6 +161,7 @@ healthHandler = pure (HealthResponse "ok")
 ### WAI Applicationによる抽象化
 
 ```haskell
+-- src/Server.hs
 mkApp :: Application
 mkApp = serve api mkServer
 ```

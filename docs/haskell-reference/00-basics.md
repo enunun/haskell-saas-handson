@@ -7,6 +7,8 @@ Iteration 0に入る前に、この教材のコードを読むために最低限
 
 ## 言語拡張とは
 
+この教材の多くのファイルは、次のような形でファイル先頭にプラグマを書く。
+
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
 
@@ -32,6 +34,8 @@ Haskellの言語仕様には`Haskell2010`という標準がある。GHCは標準
 
 ## 型シグネチャの読み方
 
+次のような一般的な例で考える。
+
 ```haskell
 add :: Int -> Int -> Int
 add x y = x + y
@@ -51,6 +55,8 @@ CreateUserRequest -> Handler User`のように）。実装を読む前に、ま�
 この1行を読んで「何を受け取って何を返す関数か」を把握するとよい。
 
 ## 関数定義・`let`・`where`
+
+次のような一般的な例で考える。
 
 ```haskell
 greet :: Text -> Text
@@ -75,6 +81,8 @@ circleArea2 r = piApprox * r * r
 ように、公開する値の下に非公開のヘルパー関数をぶら下げる形でよく使う）。
 
 ## パターンマッチと`case`式
+
+次のような一般的な例で考える。
 
 ```haskell
 describe :: Maybe Int -> Text
@@ -107,6 +115,7 @@ Haskellではif/elseの代わりに「値の形」で分岐することが多い
 ## `data`宣言とレコード構文
 
 ```haskell
+-- src/User/Types.hs
 data User = User
   { userId    :: Int
   , userName  :: Text
@@ -125,6 +134,8 @@ User`という関数）を作る。`{ ... }`はレコード構文で、
 
 ## 型クラスと`deriving`
 
+baseライブラリの`Show`型クラスは次のように定義されている。
+
 ```haskell
 class Show a where
   show :: a -> String
@@ -140,6 +151,7 @@ class Show a where
 インスタンスを導出できる。
 
 ```haskell
+-- src/User/Types.hs（フィールドを省略した簡略表記）
 data User = User { ... } deriving (Show, Eq)
 ```
 
@@ -173,6 +185,8 @@ Haskellの関数は同じ入力に対して常に同じ値を返し、副作用�
 
 モナドを実際に使うときの中心的な構文が`do`記法である。
 
+次のような一般的な例で考える。
+
 ```haskell
 main :: IO ()
 main = do
@@ -196,6 +210,8 @@ main = do
 - `>>=`（bind、「バインド」と読む）：`m a`型の値と、`a -> m b`型の
   関数を受け取り、`m b`型の値を返す。
 
+先ほどの例を`>>=`だけで書き直すと次のようになる。
+
 ```haskell
 main :: IO ()
 main = getLine >>= \name -> putStrLn ("こんにちは、" <> name)
@@ -208,6 +224,7 @@ main = getLine >>= \name -> putStrLn ("こんにちは、" <> name)
 失敗するHTTPハンドラの計算を表す（詳しくは[Iteration 2の節](03-iteration-2.md)を参照）。
 
 ```haskell
+-- src/Server.hs
 healthHandler :: Handler HealthResponse
 healthHandler = pure (HealthResponse "ok")
 ```
@@ -216,6 +233,10 @@ healthHandler = pure (HealthResponse "ok")
 `IO`のアクション（`readIORef`など）を実行したい場合は`liftIO`
 （`IO a -> Handler a`）で変換する必要がある（`Handler`の実体である
 `ExceptT ServerError IO a`は内部に`IO`を含む型だからである）。
+
+`liftIO`の使い方自体は、次の例のように単純である（実際の
+`src/User/Server.hs`は`User.Store`を経由するが、`liftIO`の使い方は
+これと変わらない）。
 
 ```haskell
 listUsersHandler :: Handler [User]
@@ -227,6 +248,8 @@ listUsersHandler = liftIO (readIORef store)
 モナドより持つ操作が少ないが、`f a`型の値を扱う型クラスとして
 `Functor`・`Applicative`がある。
 
+baseライブラリの`Functor`型クラスは次のように定義されている。
+
 ```haskell
 fmap :: (a -> b) -> f a -> f b
 (<$>) :: (a -> b) -> f a -> f b   -- fmapの中置演算子版（同じもの）
@@ -235,6 +258,8 @@ fmap :: (a -> b) -> f a -> f b
 `<$>`（`fmap`）は、`f a`型の値の中身に関数を適用し、同じ`f`に包んだ
 結果を返す操作である。`show <$> Just 5`は`Just "5"`になる（`Just`に
 包まれた`5`に`show`を適用し、結果を`Just`のまま返す）。
+
+`Applicative`型クラスは次のように定義されている。
 
 ```haskell
 (<*>) :: f (a -> b) -> f a -> f b
@@ -246,6 +271,7 @@ fmap :: (a -> b) -> f a -> f b
 して1つの値にまとめる場面でよく使う。
 
 ```haskell
+-- src/User/Types.hs
 instance FromJSON CreateUserRequest where
   parseJSON = withObject "CreateUserRequest" $ \v ->
     CreateUserRequest <$> v .: "name" <*> v .: "email"

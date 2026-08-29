@@ -4,6 +4,8 @@
 
 ## 独自の型クラスを定義する
 
+joseライブラリ（`Crypto.JWT`）は`HasClaimsSet`を次のように定義している。
+
 ```haskell
 class HasClaimsSet a where
   claimsSet :: Lens' a ClaimsSet
@@ -20,6 +22,8 @@ class HasClaimsSet a where
 ため）。
 
 ## `Data.Map.Strict`
+
+containersライブラリの`Data.Map.Strict`は次の関数群を提供している。
 
 ```haskell
 Map.empty                    :: Map k v

@@ -5,6 +5,7 @@
 ## 代数的データ型（ADT）・直和型
 
 ```haskell
+-- src/User/Error.hs
 data UserError
   = Forbidden
   | InvalidEmail Text
@@ -27,6 +28,10 @@ GHCは「すべてのコンストラクタを網羅しているか」を検査�
 
 ## パターンガード
 
+`src/User/Server.hs`の`createUserHandler`と同じ構造を、引数を直接
+分解する形にして示す（実際は`req`から`crName req`・`crEmail req`で
+フィールドを取り出している）。
+
 ```haskell
 createUserHandler authUser (CreateUserRequest reqName reqEmail)
   | authRole authUser /= Admin = throwUserError Forbidden
@@ -43,6 +48,7 @@ createUserHandler authUser (CreateUserRequest reqName reqEmail)
 ## レコード更新構文
 
 ```haskell
+-- src/User/Error.hs
 base { errBody = encode e, errHeaders = jsonContentType : errHeaders base }
 ```
 

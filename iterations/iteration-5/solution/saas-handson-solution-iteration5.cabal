@@ -1,0 +1,93 @@
+cabal-version:      2.4
+name:               saas-handson-solution-iteration5
+version:            0.1.0.0
+synopsis:           HaskellとServantで作るtoB SaaSハンズオン教材（Iteration 5・解答例）
+build-type:         Simple
+
+library
+    hs-source-dirs:   src
+    exposed-modules:  Api
+                    , Server
+                    , Auth.Server
+                    , Auth.Types
+                    , Health.Api
+                    , Health.Server
+                    , Health.Types
+                    , User.Api
+                    , User.Error
+                    , User.Server
+                    , User.Repository
+                    , User.Repository.InMemory
+                    , User.Repository.Postgres
+                    , User.Types
+    build-depends:    base >=4.14 && <5
+                    , servant
+                    , servant-server
+                    , warp
+                    , aeson
+                    , text
+                    , bytestring
+                    , wai
+                    , jose
+                    , lens
+                    , mtl
+                    , http-conduit
+                    , containers
+                    , postgresql-simple
+                    , resource-pool
+    default-language: Haskell2010
+
+executable saas-handson-solution-iteration5
+    hs-source-dirs:   app
+    main-is:          Main.hs
+    ghc-options:      -threaded
+    build-depends:    base >=4.14 && <5
+                    , saas-handson-solution-iteration5
+                    , warp
+                    , bytestring
+    default-language: Haskell2010
+
+-- 単体テスト：User.Repository.InMemoryのみを使い、実DB（PostgreSQL）
+-- へは一切接続しない。dockerを起動していない環境でも常に実行できる。
+test-suite unit
+    type:               exitcode-stdio-1.0
+    hs-source-dirs:     test/unit
+    main-is:            Spec.hs
+    other-modules:      HealthSpec
+                      , User.UserSpec
+    build-depends:      base >=4.14 && <5
+                      , saas-handson-solution-iteration5
+                      , hspec
+                      , servant-server
+                      , aeson
+                      , text
+    build-tool-depends: hspec-discover:hspec-discover
+    default-language:   Haskell2010
+
+-- 結合テスト：User.Repository.Postgres（実DB）を使う。実行には
+-- devcontainerのdocker composeで一緒に起動するdbサービスが必要
+-- （docs/iteration-4.mdの「事前準備」を参照）。JWTの検証自体はテスト
+-- 専用の鍵ペアで行い、外部の認証サーバー（mock-auth）には依存しない。
+test-suite integration
+    type:               exitcode-stdio-1.0
+    hs-source-dirs:     test/integration
+    main-is:            Spec.hs
+    other-modules:      HealthSpec
+                      , User.UserSpec
+    build-depends:      base >=4.14 && <5
+                      , saas-handson-solution-iteration5
+                      , hspec
+                      , hspec-wai
+                      , hspec-wai-json
+                      , servant-server
+                      , wai
+                      , aeson
+                      , bytestring
+                      , jose
+                      , lens
+                      , text
+                      , time
+                      , http-types
+                      , postgresql-simple
+    build-tool-depends: hspec-discover:hspec-discover
+    default-language:   Haskell2010

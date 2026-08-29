@@ -1,0 +1,18 @@
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE QuasiQuotes #-}
+
+module HealthSpec (spec) where
+
+import Server (mkApp)
+import Test.Hspec
+import Test.Hspec.Wai
+import Test.Hspec.Wai.JSON (json)
+
+spec :: Spec
+spec = with (pure mkApp) $
+  describe "GET /health" $ do
+    it "ステータスコード200を返す" $
+      get "/health" `shouldRespondWith` 200
+
+    it "レスポンスボディにstatus:okを含む" $
+      get "/health" `shouldRespondWith` [json|{status:"ok"}|]

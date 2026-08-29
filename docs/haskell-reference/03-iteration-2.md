@@ -5,22 +5,25 @@
 ## `newtype`
 
 ```haskell
-newtype TenantId = TenantId { unTenantId :: Text } deriving (Show, Eq, Ord)
+-- src/Auth/Types.hs
+newtype AuthenticatedUser = AuthenticatedUser { authSubject :: Text } deriving (Show, Eq)
 ```
 
 `newtype`は`data`とよく似ているが、「既存の型（ここでは`Text`）を
 そのまま包むだけの、コンストラクタを1つしか持たない型」専用の宣言
 である。実行時の表現は中身の型（`Text`）と全く同じ（コンパイル後は
 オーバーヘッドが消える）でありながら、コンパイル時には別の型として
-扱われる。これにより「テナントIDのつもりで書いたら実は名前だった」の
-ような取り違えを型検査の時点で防げる（`Text`のままだと`TenantId`と
-`Text`の値が混ざっても検出できないが、`newtype`で包むと別の型に
-なるため検出できる）。
+扱われる。これにより「認証済みユーザーのつもりで書いたら実はただの
+`Text`だった」のような取り違えを型検査の時点で防げる（`Text`のままだと
+`AuthenticatedUser`と無関係な`Text`の値が混ざっても検出できないが、
+`newtype`で包むと別の型になるため検出できる）。
 
 ## 型族（type family）
 
 ```haskell
-type family AuthServerData a :: Type
+-- src/Auth/Types.hs
+{-# LANGUAGE TypeFamilies #-}
+
 type instance AuthServerData (AuthProtect "jwt") = AuthenticatedUser
 ```
 
@@ -31,9 +34,12 @@ type instance AuthServerData (AuthProtect "jwt") = AuthenticatedUser
 「特定の入力に対する型族の“実装”」を1つ与える宣言であり、これにより
 `AuthProtect "jwt"`というタグと`AuthenticatedUser`という型が
 結び付けられる。値の世界の関数と対になる、型の世界の“関数”だと考える
-とよい。
+とよい。`type instance`宣言を書くには`TypeFamilies`拡張が必要で、
+これがないと`type instance`という構文自体が構文エラーになる。
 
 ## モナド変換子・`ExceptT`・`MonadError`
+
+servant-serverライブラリは`Handler`を次のように定義している。
 
 ```haskell
 type Handler = ExceptT ServerError IO
@@ -47,6 +53,8 @@ type Handler = ExceptT ServerError IO
 `Handler`の実体である`ExceptT ServerError IO`はこのクラスの
 インスタンスになっている。
 
+`src/Auth/Server.hs`では実際に次の形で使われている。
+
 ```haskell
 throwError (err401 { errBody = "..." })
 ```
@@ -57,6 +65,8 @@ throwError (err401 { errBody = "..." })
 `Handler`全体が失敗（`Left`）で終わる。
 
 ## `Either`
+
+baseライブラリの`Data.Either`は次のように定義されている。
 
 ```haskell
 data Either e a = Left e | Right a
@@ -73,6 +83,7 @@ data Either e a = Left e | Right a
 ## Lens入門（`^?`・`_Just`）
 
 ```haskell
+-- src/Auth/Server.hs
 claims ^? claimSub . _Just . string
 ```
 
